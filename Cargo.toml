@@ -1,0 +1,15 @@
+[package]
+name = "undo-vm"
+version = "0.1.0"
+authors = ["vendethiel <vendethiel@hotmail.fr>"]
+
+[[bin]]
+name = "bin"
+path = "src/main.rs"
+
+[lib]
+name = "lib"
+path = "src/lib.rs"
+
+[dependencies]
+serde_json = "1.0"
