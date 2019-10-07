@@ -23,7 +23,12 @@ fn main() {
 
   match result {
     Ok(_) =>
-      lib::vm::new(content).run(),
+      match serde_json::from_str(&content) {
+        Ok(module) =>
+          lib::vm::run(module),
+        Err(err) =>
+          println!("Couldn't parse json: {}", err),
+      }
     Err(err) =>
       println!("An error occured trying to read the file: {}", err),
   }
