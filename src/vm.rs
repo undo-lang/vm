@@ -9,8 +9,8 @@ enum Instruction {
   PushString(usize),
   LoadLocal(usize),
   StoreLocal(usize),
-  //StoreLocal(i64),
   LoadName(Vec<String>, String),
+  LoadGlobal(String),
   JumpIfFalse(usize),
   Call(usize),
 }
@@ -126,6 +126,12 @@ fn goMain(module: Module) {
         }
         curFrame.ip += 1;
       }
+
+      Some(Instruction::LoadGlobal(name)) => {
+        // TODO make sure the function exists
+        stack.push(gc.alloc(Value::ModuleFnRef(curFrame.module.name.clone(), name.clone())));
+        curFrame.ip += 1;
+      },
 
       Some(Instruction::JumpIfFalse(offset)) => {
         let ptr = stack.pop().expect("Nothing left on stack");
