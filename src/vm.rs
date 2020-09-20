@@ -11,7 +11,7 @@ enum Instruction {
   StoreLocal(usize),
   LoadName(Vec<String>, String),
   LoadGlobal(String),
-  JumpIfFalse(usize),
+  Unless(usize),
   Jump(usize),
   Call(usize),
 }
@@ -137,16 +137,16 @@ fn goMain(module: Module) {
       Some(Instruction::Jump(offset)) => {
         let ptr = stack.pop().expect("Nothing left on stack");
         let value = gc.at(ptr);
-        curFrame.ip += *offset;
+        curFrame.ip = *offset;
       },
 
-      Some(Instruction::JumpIfFalse(offset)) => {
+      Some(Instruction::Unless(offset)) => {
         let ptr = stack.pop().expect("Nothing left on stack");
         let value = gc.at(ptr);
         match value {
           Value::IntVal(n) =>
               if *n == 0i64 {
-                curFrame.ip += *offset + 1 // Always skip current instruction
+                curFrame.ip = *offset
               } else {
                 curFrame.ip += 1
               }
