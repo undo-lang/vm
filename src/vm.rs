@@ -33,7 +33,7 @@ struct Frame<'a> {
                    //     this will prevent captures from being gc'd
 }
 
-fn makeFrame(module: &Module, name: String) -> Frame {
+fn make_frame(module: &Module, name: String) -> Frame {
   Frame {
     module: module,
     fun: name,
@@ -43,8 +43,8 @@ fn makeFrame(module: &Module, name: String) -> Frame {
   }
 }
 
-fn curFn<'a>(module: &'a Module, fnName: String) -> &'a Vec<Instruction> {
-  module.functions.get(&fnName).expect("No such fn")
+fn cur_fn<'a>(module: &'a Module, fn_name: String) -> &'a Vec<Instruction> {
+  module.functions.get(&fn_name).expect("No such fn")
 }
 
 #[derive(Debug)]
@@ -72,46 +72,46 @@ impl GC {
   }
 }
 
-fn goMain(module: Module) {
+fn run_main(module: Module) {
   let mut gc = GC::new();
   let mut stack: Vec<Ptr> = Vec::new();
   let mut frames: VecDeque<Frame> = VecDeque::new();
-  frames.push_back(makeFrame(&module, "MAIN".to_string()));
+  frames.push_back(make_frame(&module, "MAIN".to_string()));
   while frames.len() > 0 {
-    let mut curFrame = frames.back_mut().unwrap();
-    let fun = curFn(&module, curFrame.fun.to_string());
-    println!("ip: {}", curFrame.ip);
-    println!("got: {:?}", fun.get(curFrame.ip));
-    match fun.get(curFrame.ip) {
+    let mut cur_frame = frames.back_mut().unwrap();
+    let fun = cur_fn(&module, cur_frame.fun.to_string());
+    println!("ip: {}", cur_frame.ip);
+    println!("got: {:?}", fun.get(cur_frame.ip));
+    match fun.get(cur_frame.ip) {
       Some(Instruction::PushInt(n)) => {
         println!("Got push int");
         stack.push(gc.alloc(Value::IntVal(*n)));
-        curFrame.ip += 1;
+        cur_frame.ip += 1;
       },
 
       Some(Instruction::PushString(n)) => {
         println!("Got push int");
-        let string = curFrame.module.strings.get(*n).expect("No such string");
+        let string = cur_frame.module.strings.get(*n).expect("No such string");
         stack.push(gc.alloc(Value::StrVal(string.to_string())));
-        curFrame.ip += 1;
+        cur_frame.ip += 1;
       },
 
       Some(Instruction::LoadLocal(idx)) => {
-        let ptr = curFrame.locals.get(*idx).expect("Trying to access uninitialized local");
+        let ptr = cur_frame.locals.get(*idx).expect("Trying to access uninitialized local");
         stack.push(*ptr);
-        curFrame.ip += 1;
+        cur_frame.ip += 1;
       },
 
       Some(Instruction::StoreLocal(idx)) => {
         let ptr = stack.pop().expect("Stack is empty, cannot store");
-        if curFrame.locals.len() > *idx {
-          curFrame.locals[*idx] = ptr;
-        } else if curFrame.locals.len() == *idx {
-          curFrame.locals.push(ptr);
+        if cur_frame.locals.len() > *idx {
+          cur_frame.locals[*idx] = ptr;
+        } else if cur_frame.locals.len() == *idx {
+          cur_frame.locals.push(ptr);
         } else {
           panic!("Out-of-order local initialization!");
         }
-        curFrame.ip += 1;
+        cur_frame.ip += 1;
       }
 
       Some(Instruction::LoadName(namespace, name)) => {
@@ -125,17 +125,17 @@ fn goMain(module: Module) {
         } else {
           panic!("Trying to access to an un-loaded module");
         }
-        curFrame.ip += 1;
+        cur_frame.ip += 1;
       }
 
       Some(Instruction::LoadGlobal(name)) => {
         // TODO make sure the function exists
-        stack.push(gc.alloc(Value::ModuleFnRef(curFrame.module.name.clone(), name.clone())));
-        curFrame.ip += 1;
+        stack.push(gc.alloc(Value::ModuleFnRef(cur_frame.module.name.clone(), name.clone())));
+        cur_frame.ip += 1;
       },
 
       Some(Instruction::Jump(offset)) => {
-        curFrame.ip = *offset;
+        cur_frame.ip = *offset;
       },
 
       Some(Instruction::Unless(offset)) => {
@@ -144,16 +144,16 @@ fn goMain(module: Module) {
         match value {
           Value::IntVal(n) =>
               if *n == 0i64 {
-                curFrame.ip = *offset
+                cur_frame.ip = *offset
               } else {
-                curFrame.ip += 1
+                cur_frame.ip += 1
               }
           _ =>
-            curFrame.ip += 1
+            cur_frame.ip += 1
         }
       },
 
-      Some(Instruction::Call(argNum)) => {
+      Some(Instruction::Call(arg_num)) => {
         // TODO need to think of a story for local functions and returning closures
         // one of the first thing we need is probably at semantic analysis stage. extract them to
         // be fake functions, and have an instruction to curry them, i.e.:
@@ -161,22 +161,23 @@ fn goMain(module: Module) {
         let ptr = stack.pop().expect("Nothing left on stack to call");
         let value = gc.at(ptr);
         match value {
-          Value::ModuleFnRef(ns, name) if ns[0] == "Prelude" => {
-            for i in (1..=*argNum).rev() {
+          Value::ModuleFnRef(ns, _name) if ns[0] == "Prelude" => {
+            for i in (1..=*arg_num).rev() {
               println!("I/O {}: {:?}", i, gc.at(stack.pop().unwrap()));
             }
-            curFrame.ip += 1;
+            cur_frame.ip += 1;
           },
-          Value::ModuleFnRef(ns, name) => {
+          Value::ModuleFnRef(_ns, name) => {
+            // TODO load from ^^ ns, not from our current module...
             // NOTE: increment IP here, since adding a frame will invalid our borrow
-            curFrame.ip += 1;
+            cur_frame.ip += 1;
             // TODO args and stuff yada yada yada
             //      also, should probably reverse order of arguments
-            let mut newFrame = makeFrame(&module, name.to_string());
-            for i in (1..=*argNum).rev() {
-              newFrame.locals.push(stack.pop().unwrap());
+            let mut new_frame = make_frame(&module, name.to_string());
+            for _ in (1..=*arg_num).rev() {
+              new_frame.locals.push(stack.pop().unwrap());
             }
-            frames.push_back(newFrame);
+            frames.push_back(new_frame);
           },
           _ => {
             panic!("Can't call!");
@@ -185,10 +186,10 @@ fn goMain(module: Module) {
       },
 
       None => {
-        if stack.len() < curFrame.base {
+        if stack.len() < cur_frame.base {
           panic!("Consumed too much stack space!");
         }
-        while stack.len() > curFrame.base {
+        while stack.len() > cur_frame.base {
           stack.pop();
         }
         frames.pop_back().expect("No current frame?!");
@@ -201,5 +202,5 @@ fn goMain(module: Module) {
 
 pub fn run(module: Module) {
   println!("Loading {:?}...", module.name);
-  goMain(module);
+  run_main(module);
 }
