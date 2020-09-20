@@ -135,8 +135,6 @@ fn goMain(module: Module) {
       },
 
       Some(Instruction::Jump(offset)) => {
-        let ptr = stack.pop().expect("Nothing left on stack");
-        let value = gc.at(ptr);
         curFrame.ip = *offset;
       },
 
