@@ -1,0 +1,38 @@
+{
+    "dependencies": [],
+    "functions": {
+        "MAIN": [
+            {
+                "tag": "PushString",
+                "contents": 1
+            },
+            {
+                "tag": "PushInt",
+                "contents": 42
+            },
+            {
+                "tag": "LoadName",
+                "contents": [
+                    {
+                        "module": [
+                            "Prelude"
+                        ]
+                    },
+                    "print"
+                ]
+            },
+            {
+                "tag": "Call",
+                "contents": 2
+            }
+        ]
+    },
+    "name": [
+        "simple",
+        "call"
+    ],
+    "strings": [
+        "MAIN",
+        "Hello world!"
+    ]
+}
