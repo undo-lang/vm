@@ -9,7 +9,7 @@ fn main() {
   let result;
 
   if let Some(path) = env::args().nth(1) {
-    println!("Loading file {}", path);
+    eprintln!("Loading file {}", path);
 
     match File::open(&path) {
       Ok(mut file) =>
@@ -27,9 +27,9 @@ fn main() {
         Ok(module) =>
           lib::vm::run(module),
         Err(err) =>
-          println!("Couldn't parse json: {}", err),
+          eprintln!("Couldn't parse json: {}", err),
       }
     Err(err) =>
-      println!("An error occured trying to read the file: {}", err),
+      eprintln!("An error occured trying to read the file: {}", err),
   }
 }

@@ -3,13 +3,24 @@ use std::collections::VecDeque;
 use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde()]
+struct ModuleName {
+  module: Vec<String>
+}
+
+fn is_prelude(module_name: &ModuleName) -> bool {
+  module_name.module.len() == 1 && module_name.module[0] == "Prelude"
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "tag", content = "contents")]
 enum Instruction {
   PushInt(i64),
   PushString(usize),
   LoadLocal(usize),
   StoreLocal(usize),
-  LoadName(Vec<String>, String),
+  // LoadName(Vec<String>, String),
+  LoadName(ModuleName, String),
   LoadGlobal(String),
   Unless(usize),
   Jump(usize),
@@ -54,6 +65,16 @@ enum Value {
   ModuleFnRef(Vec<String>, String),
 }
 
+impl Value {
+  fn to_string(&self) -> String {
+    match self {
+      Value::IntVal(i) => i.to_string(),
+      Value::StrVal(s) => s.to_string(),
+      Value::ModuleFnRef(_, f) => f.to_string()
+    }
+  }
+}
+
 // TODO we shouldn't have a single value type
 struct GC(Vec<Value>); // TODO 2nd arena
 #[derive(Clone, Copy)]
@@ -80,17 +101,15 @@ fn run_main(module: Module) {
   while frames.len() > 0 {
     let mut cur_frame = frames.back_mut().unwrap();
     let fun = cur_fn(&module, cur_frame.fun.to_string());
-    println!("ip: {}", cur_frame.ip);
-    println!("got: {:?}", fun.get(cur_frame.ip));
+    eprintln!("ip: {}", cur_frame.ip);
+    eprintln!("got: {:?}", fun.get(cur_frame.ip));
     match fun.get(cur_frame.ip) {
       Some(Instruction::PushInt(n)) => {
-        println!("Got push int");
         stack.push(gc.alloc(Value::IntVal(*n)));
         cur_frame.ip += 1;
       },
 
       Some(Instruction::PushString(n)) => {
-        println!("Got push int");
         let string = cur_frame.module.strings.get(*n).expect("No such string");
         stack.push(gc.alloc(Value::StrVal(string.to_string())));
         cur_frame.ip += 1;
@@ -120,8 +139,8 @@ fn run_main(module: Module) {
         //   if B returns a function in C, then this here errors
         // This needs to be ruled out at semantic time, not here.
         // The VM should keep store of all its loaded modules somewhere
-        if namespace[0] == "Prelude" || module.dependencies.contains(namespace) {
-          stack.push(gc.alloc(Value::ModuleFnRef(namespace.clone(), name.clone())));
+        if is_prelude(namespace) { // || module.dependencies.contains(namespace) {
+          stack.push(gc.alloc(Value::ModuleFnRef(namespace.module.clone(), name.clone())));
         } else {
           panic!("Trying to access to an un-loaded module");
         }
@@ -161,9 +180,14 @@ fn run_main(module: Module) {
         let ptr = stack.pop().expect("Nothing left on stack to call");
         let value = gc.at(ptr);
         match value {
-          Value::ModuleFnRef(ns, _name) if ns[0] == "Prelude" => {
-            for i in (1..=*arg_num).rev() {
-              println!("I/O {}: {:?}", i, gc.at(stack.pop().unwrap()));
+          Value::ModuleFnRef(ns, name) if ns.len() == 1 && ns[0] == "Prelude" => {
+            match name.as_str() {
+              "print" =>
+                //for _ in (1..=*arg_num).rev()
+                for _ in 1..=*arg_num {
+                  println!("{}", gc.at(stack.pop().unwrap()).to_string());
+                }
+              _ => panic!("No such prelude fn: {name}", name = name)
             }
             cur_frame.ip += 1;
           },
@@ -197,10 +221,10 @@ fn run_main(module: Module) {
       }
     }
   }
-  println!("Program done!");
+  eprintln!("Program done!");
 }
 
 pub fn run(module: Module) {
-  println!("Loading {:?}...", module.name);
+  eprintln!("Loading {:?}...", module.name);
   run_main(module);
 }
