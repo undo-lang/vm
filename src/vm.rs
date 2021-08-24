@@ -58,11 +58,11 @@ fn cur_fn<'a>(module: &'a Module, fn_name: String) -> &'a Vec<Instruction> {
   module.functions.get(&fn_name).expect("No such fn")
 }
 
-#[derive(Debug)]
 enum Value {
   IntVal(i64),
   StrVal(String),
   ModuleFnRef(Vec<String>, String),
+  ThwartPtr(usize),
 }
 
 impl Value {
@@ -70,7 +70,19 @@ impl Value {
     match self {
       Value::IntVal(i) => i.to_string(),
       Value::StrVal(s) => s.to_string(),
-      Value::ModuleFnRef(_, f) => f.to_string()
+      Value::ModuleFnRef(_, f) => f.to_string(),
+      Value::ThwartPtr(_) => "Thwart ptr".to_string()
+    }
+  }
+}
+
+impl Clone for Value {
+  fn clone(&self) -> Value {
+    match self {
+      Value::IntVal(i) => Value::IntVal(*i),
+      Value::StrVal(s) => Value::StrVal(s.to_string()),
+      Value::ModuleFnRef(ns, f) => Value::ModuleFnRef(ns.iter().map(|s| s.to_string()).collect(), f.to_string()),
+      Value::ThwartPtr(i) => Value::ThwartPtr(*i)
     }
   }
 }
@@ -78,16 +90,47 @@ impl Value {
 // TODO we shouldn't have a single value type
 struct GC(Vec<Value>); // TODO 2nd arena
 #[derive(Clone, Copy)]
-struct Ptr(usize); // todo thwarting ptr
+struct Ptr(usize); //, usize);
+
+fn compact(mut gc: GC, arena: Vec<Value>, frames: VecDeque<Frame>, mut stack: Vec<Ptr>) -> Vec<Value> {
+  let mut new_arena: Vec<Value> = vec!();
+  for (i, mut ptr) in stack.iter_mut().enumerate() {
+    match gc.raw_at(i) {
+      Value::ThwartPtr(i) => ptr.0 = *i, // Rewrite ptr
+      v => {
+        // TODO potentially traverse into `v`
+        new_arena.push(v.clone());
+        ptr.0 = new_arena.len() - 1;
+        gc.set(i, Value::ThwartPtr(ptr.0));
+      }
+    }
+  }
+  for frame in frames {
+    for local in frame.locals {
+    }
+  }
+  new_arena
+}
 
 impl GC {
   fn at(&self, i: Ptr) -> &Value {
-    self.0.get(i.0).unwrap()
+   self.raw_at(i.0)
   }
+
+  fn raw_at(&self, i: usize) -> &Value {
+    self.0.get(i).unwrap()
+  }
+
   fn alloc(&mut self, v: Value) -> Ptr {
     self.0.push(v);
     Ptr(self.0.len() - 1)
   }
+
+  fn set(&mut self, i: usize, v: Value) {
+    // TODO assert i <= self.0.len
+    self.0[i] = v;
+  }
+
   fn new() -> Self {
     GC { 0: Vec::new() }
   }
@@ -98,11 +141,13 @@ fn run_main(module: Module) {
   let mut stack: Vec<Ptr> = Vec::new();
   let mut frames: VecDeque<Frame> = VecDeque::new();
   frames.push_back(make_frame(&module, "MAIN".to_string()));
+
   while frames.len() > 0 {
     let mut cur_frame = frames.back_mut().unwrap();
     let fun = cur_fn(&module, cur_frame.fun.to_string());
     eprintln!("ip: {}", cur_frame.ip);
     eprintln!("got: {:?}", fun.get(cur_frame.ip));
+
     match fun.get(cur_frame.ip) {
       Some(Instruction::PushInt(n)) => {
         stack.push(gc.alloc(Value::IntVal(*n)));
@@ -191,13 +236,13 @@ fn run_main(module: Module) {
             }
             cur_frame.ip += 1;
           },
+
           Value::ModuleFnRef(_ns, name) => {
             // TODO load from ^^ ns, not from our current module...
             // NOTE: increment IP here, since adding a frame will invalid our borrow
             cur_frame.ip += 1;
-            // TODO args and stuff yada yada yada
-            //      also, should probably reverse order of arguments
             let mut new_frame = make_frame(&module, name.to_string());
+            // Reverse arguments because we push(pop())
             for _ in (1..=*arg_num).rev() {
               new_frame.locals.push(stack.pop().unwrap());
             }

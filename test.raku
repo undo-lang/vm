@@ -1,3 +1,4 @@
+#!/usr/bin/env raku
 use Test;
 
 for dir('test/run/') -> $bc-file {
