@@ -44,12 +44,12 @@ struct Frame<'a> {
                    //     this will prevent captures from being gc'd
 }
 
-fn make_frame(module: &Module, name: String) -> Frame {
+fn make_frame(module: &Module, name: String, base: usize) -> Frame {
   Frame {
     module: module,
     fun: name,
     ip: 0,
-    base: 0,
+    base: base,
     locals: vec!()
   }
 }
@@ -140,7 +140,7 @@ fn run_main(module: Module) {
   let mut gc = GC::new();
   let mut stack: Vec<Ptr> = Vec::new();
   let mut frames: VecDeque<Frame> = VecDeque::new();
-  frames.push_back(make_frame(&module, "MAIN".to_string()));
+  frames.push_back(make_frame(&module, "MAIN".to_string(), 0));
 
   while frames.len() > 0 {
     let mut cur_frame = frames.back_mut().unwrap();
@@ -187,6 +187,7 @@ fn run_main(module: Module) {
         if is_prelude(namespace) { // || module.dependencies.contains(namespace) {
           stack.push(gc.alloc(Value::ModuleFnRef(namespace.module.clone(), name.clone())));
         } else {
+          eprintln!("Wrong module: {:?}", namespace);
           panic!("Trying to access to an un-loaded module");
         }
         cur_frame.ip += 1;
@@ -241,7 +242,7 @@ fn run_main(module: Module) {
             // TODO load from ^^ ns, not from our current module...
             // NOTE: increment IP here, since adding a frame will invalid our borrow
             cur_frame.ip += 1;
-            let mut new_frame = make_frame(&module, name.to_string());
+            let mut new_frame = make_frame(&module, name.to_string(), stack.len());
             // Reverse arguments because we push(pop())
             for _ in (1..=*arg_num).rev() {
               new_frame.locals.push(stack.pop().unwrap());

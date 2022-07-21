@@ -1,0 +1,50 @@
+{
+    "dependencies": [],
+    "functions": {
+        "MAIN": [
+            {
+                "contents": 1,
+                "tag": "PushInt"
+            },
+            {
+                "contents": "a",
+                "tag": "LoadGlobal"
+            },
+            {
+                "contents": 1,
+                "tag": "Call"
+            },
+            {
+                "contents": [
+                    {
+                        "module": [
+                            "Prelude"
+                        ]
+                    },
+                    "print"
+                ],
+                "tag": "LoadName"
+            },
+            {
+                "contents": 1,
+                "tag": "Call"
+            }
+        ],
+        "a": [
+            {
+                "contents": 0,
+                "tag": "LoadLocal"
+            }
+        ]
+    },
+    "name": [
+        "call-user-fn"
+    ],
+    "strings": [
+        "MAIN",
+        "a",
+        "x"
+    ]
+}
+
+
