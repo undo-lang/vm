@@ -1,4 +1,4 @@
-use std::collections::BTreeMap as Map;
+use std::collections::{BTreeMap as Map, HashMap, HashSet};
 use std::collections::VecDeque;
 use serde::{Serialize, Deserialize};
 
@@ -46,15 +46,15 @@ struct Frame<'a> {
 
 fn make_frame(module: &Module, name: String, base: usize) -> Frame {
   Frame {
-    module: module,
+    module,
     fun: name,
     ip: 0,
-    base: base,
+    base,
     locals: vec!()
   }
 }
 
-fn cur_fn<'a>(module: &'a Module, fn_name: String) -> &'a Vec<Instruction> {
+fn cur_fn(module: &Module, fn_name: String) -> &Vec<Instruction> {
   module.functions.get(&fn_name).expect("No such fn")
 }
 
@@ -136,7 +136,7 @@ impl GC {
   }
 }
 
-fn run_main(module: Module) {
+fn run_main(module: Module, deps: HashMap<Vec<String>, Module>) {
   let mut gc = GC::new();
   let mut stack: Vec<Ptr> = Vec::new();
   let mut frames: VecDeque<Frame> = VecDeque::new();
@@ -179,16 +179,11 @@ fn run_main(module: Module) {
       }
 
       Some(Instruction::LoadName(namespace, name)) => {
-        // this doesn't allow for peer deps, which is probably an issue:
-        // If module A has [B] as deps, and B has [C] as deps,
-        //   if B returns a function in C, then this here errors
-        // This needs to be ruled out at semantic time, not here.
-        // The VM should keep store of all its loaded modules somewhere
-        if is_prelude(namespace) { // || module.dependencies.contains(namespace) {
+        if is_prelude(namespace) || deps.contains_key(&namespace.module) {
           stack.push(gc.alloc(Value::ModuleFnRef(namespace.module.clone(), name.clone())));
         } else {
           eprintln!("Wrong module: {:?}", namespace);
-          panic!("Trying to access to an un-loaded module");
+          panic!("Trying to access to an un-loaded/unprovided module");
         }
         cur_frame.ip += 1;
       }
@@ -238,11 +233,15 @@ fn run_main(module: Module) {
             cur_frame.ip += 1;
           },
 
-          Value::ModuleFnRef(_ns, name) => {
+          Value::ModuleFnRef(ns, name) => {
             // TODO load from ^^ ns, not from our current module...
             // NOTE: increment IP here, since adding a frame will invalid our borrow
             cur_frame.ip += 1;
-            let mut new_frame = make_frame(&module, name.to_string(), stack.len());
+            let mut new_frame = if ns == &module.name {
+                make_frame(&module, name.to_string(), stack.len())
+              } else {
+              make_frame(deps.get(ns).unwrap(), name.to_string(), stack.len())
+            };
             // Reverse arguments because we push(pop())
             for _ in (1..=*arg_num).rev() {
               new_frame.locals.push(stack.pop().unwrap());
@@ -270,7 +269,31 @@ fn run_main(module: Module) {
   eprintln!("Program done!");
 }
 
-pub fn run(module: Module) {
+
+fn ensure_all_loaded(module: &Module, deps: &HashMap<Vec<String>, Module>) -> HashSet<Vec<String>> {
+  let mut missing = HashSet::new();
+  for dep in &module.dependencies {
+    if dep != &module.name && !deps.contains_key(dep) {
+      missing.insert(dep.clone());
+    }
+  }
+  missing
+}
+
+fn format_module_name(name: &Vec<String>) -> String {
+  name.join(".")
+}
+
+pub fn run(module: Module, deps: HashMap<Vec<String>, Module>) {
   eprintln!("Loading {:?}...", module.name);
-  run_main(module);
+  let missing_modules = ensure_all_loaded(&module, &deps);
+  if missing_modules.len() > 0 {
+    let missing_names = missing_modules
+        .into_iter()
+        .map(|m| format_module_name(&m))
+        .collect::<Vec<String>>()
+        .join(", ");
+    panic!("Missing module(s): {}", missing_names);
+  }
+  run_main(module, deps);
 }
