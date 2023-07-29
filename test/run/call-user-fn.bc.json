@@ -7,7 +7,7 @@
                 "tag": "PushInt"
             },
             {
-                "contents": "a",
+                "contents": "id",
                 "tag": "LoadGlobal"
             },
             {
@@ -30,7 +30,7 @@
                 "tag": "Call"
             }
         ],
-        "a": [
+        "id": [
             {
                 "contents": 0,
                 "tag": "LoadLocal"
@@ -42,7 +42,7 @@
     ],
     "strings": [
         "MAIN",
-        "a",
+        "id",
         "x"
     ]
 }

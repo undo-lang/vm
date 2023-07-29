@@ -1,0 +1,41 @@
+{
+    "dependencies": [],
+    "functions": {
+        "MAIN": [],
+        "add": [
+            {
+                "contents": 0,
+                "tag": "LoadLocal"
+            },
+            {
+                "contents": 1,
+                "tag": "LoadLocal"
+            },
+            {
+                "tag": "LoadName",
+                "contents": [
+                    {
+                        "module": [
+                            "Prelude"
+                        ]
+                    },
+                    "+"
+                ]
+            },
+            {
+                "tag": "Call",
+                "contents": 2
+            }
+        ]
+    },
+    "name": [
+        "call",
+        "other",
+        "module",
+        "second"
+    ],
+    "strings": [
+        "MAIN",
+        "add"
+    ]
+}

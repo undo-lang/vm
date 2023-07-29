@@ -1,0 +1,59 @@
+{
+    "dependencies": [
+        ["call", "other", "module", "second"]
+    ],
+    "functions": {
+        "MAIN": [
+            {
+                "tag": "PushInt",
+                "contents": 1
+            },
+            {
+                "tag": "PushInt",
+                "contents": 42
+            },
+            {
+                "tag": "LoadName",
+                "contents": [
+                    {
+                        "module": [
+                            "call",
+                            "other",
+                            "module",
+                            "second"
+                        ]
+                    },
+                    "add"
+                ]
+            },
+            {
+                "tag": "Call",
+                "contents": 2
+            },
+            {
+                "tag": "LoadName",
+                "contents": [
+                    {
+                        "module": [
+                            "Prelude"
+                        ]
+                    },
+                    "print"
+                ]
+            },
+            {
+                "tag": "Call",
+                "contents": 1
+            }
+        ]
+    },
+    "name": [
+        "call",
+        "other",
+        "module"
+    ],
+    "strings": [
+        "MAIN",
+        "Hello world!"
+    ]
+}

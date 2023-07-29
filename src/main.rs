@@ -6,35 +6,32 @@ use lib::vm::Module;
 
 extern crate lib;
 
-fn main() {
-  let mut content = String::new();
-  let result;
-
-  if let Some(path) = env::args().nth(1) {
-    eprintln!("Loading file {}", path);
-
-    match File::open(&path) {
-      Ok(mut file) =>
-        result = file.read_to_string(&mut content),
-      Err(err) =>
-        panic!("Can't read the file: {}", err),
+fn load_module(path: String) -> Result<Module, String> {
+    let mut content = String::new();
+    if path == "-" {
+        std::io::stdin().read_to_string(&mut content).expect("Cannot read stdin");
+    } else {
+        let mut file = File::open(&path).map_err(|err| err.to_string())?;
+        file.read_to_string(&mut content).expect(format!("Cannot read the file {path}").as_str());
     }
-  } else {
-    result = std::io::stdin().read_to_string(&mut content)
-  }
+    serde_json::from_str(&content).map_err(|err| err.to_string())
+}
 
-  // TODO collect+load deps
-  // TODO probably have `modules` instead of deps+pass name of module to run
-  let deps: HashMap<Vec<String>, Module> = HashMap::new();
-  match result {
-    Ok(_) =>
-      match serde_json::from_str(&content) {
-        Ok(module) =>
-          lib::vm::run(module, deps),
-        Err(err) =>
-          eprintln!("Couldn't parse json: {}", err),
-      }
-    Err(err) =>
-      eprintln!("An error occurred trying to read the file: {}", err),
-  }
+fn main() {
+    let mut main: Vec<String> = Vec::new();
+    let mut modules: HashMap<Vec<String>, Module> = HashMap::new();
+
+    // XXX this means `./undo-frontend` just errors, instead of behaving like `./undo-frontend -`
+    for arg in env::args().skip(1) {
+        eprintln!("Loading {}", arg);
+
+        let module = load_module(arg.clone()).expect(format!("Cannot open module {arg}").as_str());
+        let module_name = module.name.clone();
+        if main.is_empty() {
+            main = module_name.clone();
+        }
+        modules.insert(module_name, module);
+    }
+
+    lib::vm::run(main, modules);
 }
