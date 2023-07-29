@@ -139,6 +139,26 @@ impl GC {
     }
 }
 
+macro_rules! define_arithmetic_operator {
+    ( $op:tt, $gc:expr, $stack:expr, $arg_num:expr ) => {
+        {
+            let mut result: i64 = match $gc.at($stack.pop().unwrap()) {
+                Value::IntVal(val) => *val,
+                _ => panic!("Cannot start a non-int")
+            };
+            let mut i: usize = 1; // Start at 1, we already handled the first
+            while &i < $arg_num {
+                match $gc.at($stack.pop().unwrap()) {
+                    Value::IntVal(val) => result = result $op val,
+                    _ => panic!("Cannot perform arithmetic on a non-int value")
+                }
+                i += 1;
+            }
+            $stack.push($gc.alloc(Value::IntVal(result)))
+        }
+    }
+}
+
 fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
     let mut gc = GC::new();
     let mut stack: Vec<Ptr> = Vec::new();
@@ -228,20 +248,13 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
                     Value::ModuleFnRef(ns, name) if is_prelude_(&ns) => {
                         match name.as_str() {
                             "print" =>
-                            //for _ in (1..=*arg_num).rev()
                                 for _ in 1..=*arg_num {
                                     println!("{}", gc.at(stack.pop().unwrap()).to_string());
                                 }
-                            "+" => {
-                                let mut sum = 0;
-                                for _ in 1..=*arg_num {
-                                    match gc.at(stack.pop().unwrap()) {
-                                        Value::IntVal(val) => sum += val,
-                                        _ => panic!("Cannot add a non-integer value")
-                                    }
-                                }
-                                stack.push(gc.alloc(Value::IntVal(sum)))
-                            }
+                            "+" => define_arithmetic_operator!(+, gc, stack, arg_num),
+                            "-" => define_arithmetic_operator!(-, gc, stack, arg_num),
+                            "/" => define_arithmetic_operator!(/, gc, stack, arg_num),
+                            "*" => define_arithmetic_operator!(*, gc, stack, arg_num),
                             _ => panic!("No such prelude fn: {name}", name = name)
                         }
                         cur_frame.ip += 1;

@@ -6,7 +6,7 @@
         "MAIN": [
             {
                 "tag": "PushInt",
-                "contents": 1
+                "contents": 2
             },
             {
                 "tag": "PushInt",
