@@ -1,5 +1,11 @@
 #!/usr/bin/env raku
 use Test;
+use JSON::Fast;
+
+for dir('test/run/') -> $spec-file {
+  next unless $spec-file ~~ /'.spec.json'/;
+  slurp($spec-file);
+}
 
 for dir('test/run/') -> $bc-file {
   next unless $bc-file ~~ /'.bc.json'$/;

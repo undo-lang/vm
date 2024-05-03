@@ -255,13 +255,19 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
                             "-" => define_arithmetic_operator!(-, gc, stack, arg_num),
                             "/" => define_arithmetic_operator!(/, gc, stack, arg_num),
                             "*" => define_arithmetic_operator!(*, gc, stack, arg_num),
+                            ">" => define_arithmetic_operator!(>, gc, stack, arg_num),
+                            "<" => define_arithmetic_operator!(<, gc, stack, arg_num),
+                            "==" => define_arithmetic_operator!(==, gc, stack, arg_num),
+                            ">=" => define_arithmetic_operator!(>=, gc, stack, arg_num),
+                            "<=" => define_arithmetic_operator!(<=, gc, stack, arg_num),
+                            "!=" => define_arithmetic_operator!(!=, gc, stack, arg_num),
+                            // TODO ++
                             _ => panic!("No such prelude fn: {name}", name = name)
                         }
                         cur_frame.ip += 1;
                     }
 
                     Value::ModuleFnRef(ns, name) => {
-                        // TODO load from ^^ ns, not from our current module...
                         // NOTE: increment IP here, since adding a frame will invalidate our borrow
                         cur_frame.ip += 1;
                         let mut new_frame = make_frame(modules.get(ns).unwrap(), name.to_string());
@@ -278,8 +284,9 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
             }
 
             None => {
+                // TODO reinstate some sort of %bsp?
+
                 frames.pop_back().expect("No current frame?!");
-                // return
             }
         }
     }
