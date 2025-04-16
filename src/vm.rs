@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::collections::{BTreeMap as Map, HashMap, HashSet};
+use std::fmt::{Debug, Display, Formatter};
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde()]
@@ -8,7 +9,7 @@ struct ModuleName {
     module: Vec<String>,
 }
 
-fn is_prelude_(module_name: &Vec<String>) -> bool {
+fn is_prelude_(module_name: &[String]) -> bool {
     module_name.len() == 1 && module_name[0] == "Prelude"
 }
 
@@ -65,20 +66,20 @@ enum Value {
     IntVal(i64),
     StrVal(String),
     ModuleFnRef(Vec<String>, String),
-    ThwartPtr(usize),
     VariantVal(usize, Vec<Ptr>),
+    ThwartPtr(usize),
 }
 
-impl Value {
-    fn to_string(&self) -> String {
+impl Display for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::IntVal(i) => i.to_string(),
-            Value::StrVal(s) => s.to_string(),
-            Value::ModuleFnRef(m, f) => "{0}::{1}".format(m.join("::"), f.to_string()),
-            Value::ThwartPtr(_) => "Thwart ptr".to_string(),
+            Value::IntVal(i) => write!(f, "{}", i),
+            Value::StrVal(s) => write!(f, "{}", s),
+            Value::ModuleFnRef(m, fnm) => write!(f, "{0}::{1}", m.join("::"), fnm),
             Value::VariantVal(i, s) => {
-                "{0}({1})".format(i, s.iter().map(|v| v.to_string()).collect().join(", "))
+                write!(f, "{0}(#{1} args)", i, s.len())
             }
+            Value::ThwartPtr(_) => write!(f, "Thwart ptr"),
         }
     }
 }
@@ -91,8 +92,8 @@ impl Clone for Value {
             Value::ModuleFnRef(ns, f) => {
                 Value::ModuleFnRef(ns.iter().map(|s| s.to_string()).collect(), f.to_string())
             }
-            Value::ThwartPtr(i) => Value::ThwartPtr(*i),
             Value::VariantVal(i, ptrs) => Value::VariantVal(*i, ptrs.to_vec()),
+            Value::ThwartPtr(i) => Value::ThwartPtr(*i),
         }
     }
 }
@@ -103,44 +104,47 @@ struct GC(Vec<Value>);
 #[derive(Clone, Copy)]
 struct Ptr(usize); //, usize);
 
-fn compact_hit(old: &mut GC, new_arena: &mut Vec<Value>, ptr: &Ptr) -> usize {
-    match old.raw_at(ptr.0) {
-        Value::ThwartPtr(i) => *i, // Rewrite ptr
+fn compact_hit(old: &mut GC, new_arena: &mut Vec<Value>, ptr: &mut Ptr) {
+    match old.raw_at(ptr.0).clone() {
+        Value::ThwartPtr(i) => ptr.0 = i, // Rewrite ptr
         Value::VariantVal(i, mut ptrs) => {
-            let news = ptrs
-                .iter()
-                .map(|ptr| Ptr(compact_hit(old, new_arena, ptr)))
-                .collect();
-            new_arena.push(Value::VariantVal(*i, news));
-            new_arena.len() - 1
+            for ptr in &mut ptrs {
+                compact_hit(old, new_arena, ptr);
+            }
+            new_arena.push(Value::VariantVal(i, ptrs));
+            old.set(ptr.0, Value::ThwartPtr(new_arena.len() - 1))
         }
         v => {
             new_arena.push(v.clone());
-            new_arena.len() - 1
+            old.set(ptr.0, Value::ThwartPtr(new_arena.len() - 1))
         }
     }
 }
 
-fn compact(mut old: GC, frames: &mut VecDeque<Frame>, mut stack: &Vec<Ptr>) -> GC {
+fn compact(mut old: GC, frames: &mut VecDeque<Frame>, stack: &mut [Ptr]) -> GC {
     let mut new_arena: Vec<Value> = vec![];
     for ptr in stack.iter_mut() {
-        ptr.0 = compact_hit(&mut old, &mut new_arena, ptr);
+        compact_hit(&mut old, &mut new_arena, ptr);
     }
     for frame in frames {
         for local in &mut frame.locals {
-            local.0 = compact_hit(&mut old, &mut new_arena, local);
+            compact_hit(&mut old, &mut new_arena, local);
         }
     }
     GC(new_arena)
 }
 
 impl GC {
-    fn at(&self, i: Ptr) -> &Value {
+    fn at(&mut self, i: Ptr) -> &Value {
         self.raw_at(i.0)
     }
 
     fn raw_at(&self, i: usize) -> &Value {
         self.0.get(i).unwrap()
+    }
+
+    fn raw_at_mut(&mut self, i: usize) -> &mut Value {
+        self.0.get_mut(i).unwrap()
     }
 
     fn alloc(&mut self, v: Value) -> Ptr {
@@ -154,7 +158,7 @@ impl GC {
     }
 
     fn new() -> Self {
-        GC { 0: Vec::new() }
+        GC(Vec::new())
     }
 }
 
@@ -183,11 +187,11 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
     let mut stack: Vec<Ptr> = Vec::new();
     let mut frames: VecDeque<Frame> = VecDeque::new();
     let entrypoint_module: &Module = modules.get(&module_name).unwrap();
-    frames.push_back(make_frame(&entrypoint_module, "MAIN".to_string()));
+    frames.push_back(make_frame(entrypoint_module, "MAIN".to_string()));
 
     while !frames.is_empty() {
-        let mut cur_frame = frames.back_mut().unwrap();
-        let fun = cur_fn(&cur_frame.module, cur_frame.fun.to_string());
+        let cur_frame = frames.back_mut().unwrap();
+        let fun = cur_fn(cur_frame.module, cur_frame.fun.to_string());
         eprintln!("ip: {}", cur_frame.ip);
         eprintln!("got: {:?}", fun.get(cur_frame.ip));
 
@@ -271,23 +275,24 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
                 let ptr = stack.pop().expect("Nothing left on stack to call");
                 let value = gc.at(ptr);
                 match value {
-                    Value::ModuleFnRef(ns, name) if is_prelude_(&ns) => {
+                    Value::ModuleFnRef(ns, name) if is_prelude_(ns) => {
                         match name.as_str() {
                             "print" => {
                                 for _ in 1..=*arg_num {
-                                    println!("{}", gc.at(stack.pop().unwrap()).to_string());
+                                    println!("{}", gc.at(stack.pop().unwrap()));
                                 }
                             }
                             "+" => define_arithmetic_operator!(+, gc, stack, arg_num),
                             "-" => define_arithmetic_operator!(-, gc, stack, arg_num),
                             "/" => define_arithmetic_operator!(/, gc, stack, arg_num),
                             "*" => define_arithmetic_operator!(*, gc, stack, arg_num),
-                            ">" => define_arithmetic_operator!(>, gc, stack, arg_num),
-                            "<" => define_arithmetic_operator!(<, gc, stack, arg_num),
-                            "==" => define_arithmetic_operator!(==, gc, stack, arg_num),
-                            ">=" => define_arithmetic_operator!(>=, gc, stack, arg_num),
-                            "<=" => define_arithmetic_operator!(<=, gc, stack, arg_num),
-                            "!=" => define_arithmetic_operator!(!=, gc, stack, arg_num),
+                            // TODO bool
+                            // ">" => define_arithmetic_operator!(>, gc, stack, arg_num),
+                            // "<" => define_arithmetic_operator!(<, gc, stack, arg_num),
+                            // "==" => define_arithmetic_operator!(==, gc, stack, arg_num),
+                            // ">=" => define_arithmetic_operator!(>=, gc, stack, arg_num),
+                            // "<=" => define_arithmetic_operator!(<=, gc, stack, arg_num),
+                            // "!=" => define_arithmetic_operator!(!=, gc, stack, arg_num),
                             // TODO ++
                             _ => panic!("No such prelude fn: {name}", name = name),
                         }
@@ -323,16 +328,13 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
 fn ensure_all_loaded(modules: &HashMap<Vec<String>, Module>) -> HashSet<Vec<String>> {
     let mut bfs: Vec<Vec<String>> = modules
         .keys()
-        .into_iter()
-        .map(|name| name.clone())
+        .cloned()
         .collect();
     let mut seen: HashSet<Vec<String>> = HashSet::new();
     let mut missing = HashSet::new();
-    while !bfs.is_empty() {
-        // TODO while pop
-        let item: Vec<String> = bfs.pop().unwrap();
+    while let Some(item) = bfs.pop() {
         match modules.get(&item) {
-            Some(&ref module) => {
+            Some(module) => {
                 // Mark current module as seen
                 seen.insert(item.clone());
                 // Traverse all deps, add them to the BFS if we haven't seen them already
@@ -351,7 +353,7 @@ fn ensure_all_loaded(modules: &HashMap<Vec<String>, Module>) -> HashSet<Vec<Stri
     missing
 }
 
-fn format_module_name(name: &Vec<String>) -> String {
+fn format_module_name(name: &[String]) -> String {
     name.join(".")
 }
 
