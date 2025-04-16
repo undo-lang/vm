@@ -1,6 +1,6 @@
-use std::collections::{BTreeMap as Map, HashMap, HashSet};
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use serde::{Serialize, Deserialize};
+use std::collections::{BTreeMap as Map, HashMap, HashSet};
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde()]
@@ -44,15 +44,16 @@ struct Frame<'a> {
     fun: String,
     ip: usize,
     locals: Vec<Ptr>, // XXX we'll want to serialize this when we store closures
-    //     this will prevent captures from being gc'd
+                      //     this will prevent captures from being gc'd
 }
 
+// TODO impl
 fn make_frame(module: &Module, name: String) -> Frame {
     Frame {
         module,
         fun: name,
         ip: 0,
-        locals: vec!(),
+        locals: vec![],
     }
 }
 
@@ -65,6 +66,7 @@ enum Value {
     StrVal(String),
     ModuleFnRef(Vec<String>, String),
     ThwartPtr(usize),
+    VariantVal(usize, Vec<Ptr>),
 }
 
 impl Value {
@@ -72,8 +74,11 @@ impl Value {
         match self {
             Value::IntVal(i) => i.to_string(),
             Value::StrVal(s) => s.to_string(),
-            Value::ModuleFnRef(_, f) => f.to_string(),
-            Value::ThwartPtr(_) => "Thwart ptr".to_string()
+            Value::ModuleFnRef(m, f) => "{0}::{1}".format(m.join("::"), f.to_string()),
+            Value::ThwartPtr(_) => "Thwart ptr".to_string(),
+            Value::VariantVal(i, s) => {
+                "{0}({1})".format(i, s.iter().map(|v| v.to_string()).collect().join(", "))
+            }
         }
     }
 }
@@ -83,8 +88,11 @@ impl Clone for Value {
         match self {
             Value::IntVal(i) => Value::IntVal(*i),
             Value::StrVal(s) => Value::StrVal(s.to_string()),
-            Value::ModuleFnRef(ns, f) => Value::ModuleFnRef(ns.iter().map(|s| s.to_string()).collect(), f.to_string()),
-            Value::ThwartPtr(i) => Value::ThwartPtr(*i)
+            Value::ModuleFnRef(ns, f) => {
+                Value::ModuleFnRef(ns.iter().map(|s| s.to_string()).collect(), f.to_string())
+            }
+            Value::ThwartPtr(i) => Value::ThwartPtr(*i),
+            Value::VariantVal(i, ptrs) => Value::VariantVal(*i, ptrs.to_vec()),
         }
     }
 }
@@ -92,27 +100,38 @@ impl Clone for Value {
 // TODO we shouldn't have a single value type
 struct GC(Vec<Value>);
 
-// TODO 2nd arena
 #[derive(Clone, Copy)]
 struct Ptr(usize); //, usize);
 
-fn compact(mut gc: GC, arena: Vec<Value>, frames: VecDeque<Frame>, mut stack: Vec<Ptr>) -> Vec<Value> {
-    let mut new_arena: Vec<Value> = vec!();
-    for (i, mut ptr) in stack.iter_mut().enumerate() {
-        match gc.raw_at(i) {
-            Value::ThwartPtr(i) => ptr.0 = *i, // Rewrite ptr
-            v => {
-                // TODO potentially traverse into `v`
-                new_arena.push(v.clone());
-                ptr.0 = new_arena.len() - 1;
-                gc.set(i, Value::ThwartPtr(ptr.0));
-            }
+fn compact_hit(old: &mut GC, new_arena: &mut Vec<Value>, ptr: &Ptr) -> usize {
+    match old.raw_at(ptr.0) {
+        Value::ThwartPtr(i) => *i, // Rewrite ptr
+        Value::VariantVal(i, mut ptrs) => {
+            let news = ptrs
+                .iter()
+                .map(|ptr| Ptr(compact_hit(old, new_arena, ptr)))
+                .collect();
+            new_arena.push(Value::VariantVal(*i, news));
+            new_arena.len() - 1
+        }
+        v => {
+            new_arena.push(v.clone());
+            new_arena.len() - 1
         }
     }
-    for frame in frames {
-        for local in frame.locals {}
+}
+
+fn compact(mut old: GC, frames: &mut VecDeque<Frame>, mut stack: &Vec<Ptr>) -> GC {
+    let mut new_arena: Vec<Value> = vec![];
+    for ptr in stack.iter_mut() {
+        ptr.0 = compact_hit(&mut old, &mut new_arena, ptr);
     }
-    new_arena
+    for frame in frames {
+        for local in &mut frame.locals {
+            local.0 = compact_hit(&mut old, &mut new_arena, local);
+        }
+    }
+    GC(new_arena)
 }
 
 impl GC {
@@ -144,7 +163,7 @@ macro_rules! define_arithmetic_operator {
         {
             let mut result: i64 = match $gc.at($stack.pop().unwrap()) {
                 Value::IntVal(val) => *val,
-                _ => panic!("Cannot start a non-int")
+                _ => panic!("Cannot use that operator on a non-int")
             };
             let mut i: usize = 1; // Start at 1, we already handled the first
             while &i < $arg_num {
@@ -185,7 +204,10 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
             }
 
             Some(Instruction::LoadLocal(idx)) => {
-                let ptr = cur_frame.locals.get(*idx).expect("Trying to access uninitialized local");
+                let ptr = cur_frame
+                    .locals
+                    .get(*idx)
+                    .expect("Trying to access uninitialized local");
                 stack.push(*ptr);
                 cur_frame.ip += 1;
             }
@@ -204,7 +226,8 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
 
             Some(Instruction::LoadName(namespace, name)) => {
                 if is_prelude(namespace) || modules.contains_key(&namespace.module) {
-                    stack.push(gc.alloc(Value::ModuleFnRef(namespace.module.clone(), name.clone())));
+                    stack
+                        .push(gc.alloc(Value::ModuleFnRef(namespace.module.clone(), name.clone())));
                 } else {
                     eprintln!("Wrong module: {:?}", namespace);
                     panic!("Trying to access to an un-loaded/unprovided module");
@@ -214,7 +237,10 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
 
             Some(Instruction::LoadGlobal(name)) => {
                 // TODO make sure the function exists
-                stack.push(gc.alloc(Value::ModuleFnRef(cur_frame.module.name.clone(), name.clone())));
+                stack.push(gc.alloc(Value::ModuleFnRef(
+                    cur_frame.module.name.clone(),
+                    name.clone(),
+                )));
                 cur_frame.ip += 1;
             }
 
@@ -226,14 +252,14 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
                 let ptr = stack.pop().expect("Nothing left on stack");
                 let value = gc.at(ptr);
                 match value {
-                    Value::IntVal(n) =>
+                    Value::IntVal(n) => {
                         if *n == 0i64 {
                             cur_frame.ip = *offset
                         } else {
                             cur_frame.ip += 1
                         }
-                    _ =>
-                        cur_frame.ip += 1
+                    }
+                    _ => cur_frame.ip += 1,
                 }
             }
 
@@ -247,10 +273,11 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
                 match value {
                     Value::ModuleFnRef(ns, name) if is_prelude_(&ns) => {
                         match name.as_str() {
-                            "print" =>
+                            "print" => {
                                 for _ in 1..=*arg_num {
                                     println!("{}", gc.at(stack.pop().unwrap()).to_string());
                                 }
+                            }
                             "+" => define_arithmetic_operator!(+, gc, stack, arg_num),
                             "-" => define_arithmetic_operator!(-, gc, stack, arg_num),
                             "/" => define_arithmetic_operator!(/, gc, stack, arg_num),
@@ -262,7 +289,7 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
                             "<=" => define_arithmetic_operator!(<=, gc, stack, arg_num),
                             "!=" => define_arithmetic_operator!(!=, gc, stack, arg_num),
                             // TODO ++
-                            _ => panic!("No such prelude fn: {name}", name = name)
+                            _ => panic!("No such prelude fn: {name}", name = name),
                         }
                         cur_frame.ip += 1;
                     }
@@ -293,12 +320,16 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
     eprintln!("Program done!");
 }
 
-
 fn ensure_all_loaded(modules: &HashMap<Vec<String>, Module>) -> HashSet<Vec<String>> {
-    let mut bfs: Vec<Vec<String>> = modules.keys().into_iter().map(|name| name.clone()).collect();
+    let mut bfs: Vec<Vec<String>> = modules
+        .keys()
+        .into_iter()
+        .map(|name| name.clone())
+        .collect();
     let mut seen: HashSet<Vec<String>> = HashSet::new();
     let mut missing = HashSet::new();
-    while !bfs.is_empty() { // TODO while pop
+    while !bfs.is_empty() {
+        // TODO while pop
         let item: Vec<String> = bfs.pop().unwrap();
         match modules.get(&item) {
             Some(&ref module) => {
