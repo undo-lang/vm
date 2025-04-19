@@ -66,6 +66,7 @@ enum Value {
     IntVal(i64),
     StrVal(String),
     ModuleFnRef(Vec<String>, String),
+    #[expect(unused)]
     VariantVal(usize, Vec<Ptr>),
     ThwartPtr(usize),
 }
@@ -143,6 +144,7 @@ impl GC {
         self.0.get(i).unwrap()
     }
 
+    #[expect(unused)]
     fn raw_at_mut(&mut self, i: usize) -> &mut Value {
         self.0.get_mut(i).unwrap()
     }
@@ -183,13 +185,20 @@ macro_rules! define_arithmetic_operator {
 }
 
 fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
+    let mut num_frames = 0;
     let mut gc = GC::new();
-    let mut stack: Vec<Ptr> = Vec::new();
     let mut frames: VecDeque<Frame> = VecDeque::new();
+    let mut stack: Vec<Ptr> = Vec::new();
     let entrypoint_module: &Module = modules.get(&module_name).unwrap();
     frames.push_back(make_frame(entrypoint_module, "MAIN".to_string()));
 
     while !frames.is_empty() {
+        num_frames = num_frames + 1;
+        if num_frames == 500 { // TODO when near full or something...
+            num_frames = 0;
+            gc = compact(gc, &mut frames, &mut stack);
+        }
+
         let cur_frame = frames.back_mut().unwrap();
         let fun = cur_fn(cur_frame.module, cur_frame.fun.to_string());
         eprintln!("ip: {}", cur_frame.ip);
