@@ -9,12 +9,12 @@ for @specs -> % (:$name, :$is-error, :$skip, :@dependencies) {
     next;
   }
 
-  my $bc-file = "test/run/$($name).bc.json";
-  my $expected-output = slurp("test/run/$($name).output");
+  my $bc-file = "test/run/$name.bc.json";
+  my $expected-output = slurp("test/run/$name.output");
   my @output;
   my $error;
 
-  @dependencies.=map(* ~ '.bc.json');
+  @dependencies.=map({ "test/run/$_.bc.json" });
   my $proc = Proc::Async.new('cargo', 'run', $bc-file, |@dependencies);
 
   $proc.stdout.tap({ @output.push: $_ });
