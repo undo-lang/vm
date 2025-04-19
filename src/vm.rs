@@ -169,16 +169,36 @@ macro_rules! define_arithmetic_operator {
         {
             let mut result: i64 = match $gc.at($stack.pop().unwrap()) {
                 Value::IntVal(val) => *val,
-                _ => panic!("Cannot use that operator on a non-int")
+                _ => panic!("Cannot use {} on a non-int", stringify!($op))
             };
             let mut i: usize = 1; // Start at 1, we already handled the first
             while &i < $arg_num {
                 match $gc.at($stack.pop().unwrap()) {
                     Value::IntVal(val) => result = result $op val,
-                    _ => panic!("Cannot perform arithmetic on a non-int value")
+                    _ => panic!("Cannot use {} on a non-int value", stringify!($op))
                 }
                 i += 1;
             }
+            $stack.push($gc.alloc(Value::IntVal(result)))
+        }
+    }
+}
+macro_rules! define_boolean_operator {
+    ( $op:tt, $gc:expr, $stack:expr, $arg_num:expr ) => {
+        {
+            if *$arg_num != 2usize {
+                panic!("non-binary-applied boolean exprs TODO")
+            }
+            let fst: i64 = match $gc.at($stack.pop().unwrap()) {
+                Value::IntVal(val) => *val,
+                _ => panic!("Cannot use {} on a non-int", stringify!($op))
+            };
+            let snd: i64 = match $gc.at($stack.pop().unwrap()) {
+                Value::IntVal(val) => *val,
+                _ => panic!("Cannot use {} on a non-int", stringify!($op))
+            };
+            // TODO bool
+            let result: i64 = (fst $op snd) as i64;
             $stack.push($gc.alloc(Value::IntVal(result)))
         }
     }
@@ -295,13 +315,12 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
                             "-" => define_arithmetic_operator!(-, gc, stack, arg_num),
                             "/" => define_arithmetic_operator!(/, gc, stack, arg_num),
                             "*" => define_arithmetic_operator!(*, gc, stack, arg_num),
-                            // TODO bool
-                            // ">" => define_arithmetic_operator!(>, gc, stack, arg_num),
-                            // "<" => define_arithmetic_operator!(<, gc, stack, arg_num),
-                            // "==" => define_arithmetic_operator!(==, gc, stack, arg_num),
-                            // ">=" => define_arithmetic_operator!(>=, gc, stack, arg_num),
-                            // "<=" => define_arithmetic_operator!(<=, gc, stack, arg_num),
-                            // "!=" => define_arithmetic_operator!(!=, gc, stack, arg_num),
+                            ">" => define_boolean_operator!(>, gc, stack, arg_num),
+                            "<" => define_boolean_operator!(<, gc, stack, arg_num),
+                            "==" => define_boolean_operator!(==, gc, stack, arg_num),
+                            ">=" => define_boolean_operator!(>=, gc, stack, arg_num),
+                            "<=" => define_boolean_operator!(<=, gc, stack, arg_num),
+                            "!=" => define_boolean_operator!(!=, gc, stack, arg_num),
                             // TODO ++
                             _ => panic!("No such prelude fn: {name}", name = name),
                         }
