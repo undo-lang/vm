@@ -2,27 +2,39 @@
 use Test;
 use JSON::Fast;
 
-for dir('test/run/') -> $spec-file {
-  next unless $spec-file ~~ /'.spec.json'/;
-  slurp($spec-file);
-}
-
 my @specs = from-json(slurp 'test/run/spec.json');
-for @specs -> % (:$name, :$is-error) {
-  my $bc-file = "test/run/$($name).";
-  next unless $bc-file ~~ /'.bc.json'$/;
-  my $expected-output = slurp($bc-file.subst(/'.bc.json'$/, '.output'));
+for @specs -> % (:$name, :$is-error, :$skip, :@dependencies) {
+  if $skip {
+    skip "Skipping $name";
+    next;
+  }
+
+  my $bc-file = "test/run/$($name).bc.json";
+  my $expected-output = slurp("test/run/$($name).output");
   my @output;
   my $error;
-  my $proc = Proc::Async.new(<<cargo run $bc-file>>);
+
+  @dependencies.=map(* ~ '.bc.json');
+  my $proc = Proc::Async.new('cargo', 'run', $bc-file, |@dependencies);
+
   $proc.stdout.tap({ @output.push: $_ });
   $proc.stderr.tap({ $error ~= $_ });
+
   try {
     await $proc.start;
 
-    is @output.join("\n"), $expected-output, "$bc-file";
+    if $is-error {
+      fail "Expected error.";
+    } else {
+      is @output.join("\n"), $expected-output, $name;
+    }
+
     CATCH {
-      say "ERRORS:\n" ~ $error.lines.map("ERR: " ~ *).join("\n").indent(2) if $error;
+      if $is-error {
+        is $error, $expected-output, $name;
+      } else {
+        say "ERRORS:\n" ~ $error.lines.map("ERR: " ~ *).join("\n").indent(2) if $error;
+      }
     }
   }
 }
