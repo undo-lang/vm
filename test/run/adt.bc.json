@@ -1,0 +1,33 @@
+{
+  "dependencies": [],
+  "functions": {
+    "MAIN": [
+      {
+        "tag": "Instantiate",
+        "contents": [
+          ["adt"],
+          "Maybe",
+          "Just"
+        ]
+      }
+    ]
+  },
+  "adts": {
+    "Maybe": [
+      {
+        "name": "Just",
+        "elements": ["value"]
+      },
+      {
+        "name": "Nothing",
+        "elements": []
+      }
+    ]
+  },
+  "name": [
+    "adt"
+  ],
+  "strings": [
+
+  ]
+}

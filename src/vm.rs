@@ -1,11 +1,10 @@
+use crate::context::{build_context, Context};
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
-use std::collections::{BTreeMap as Map, HashMap, HashSet};
-use std::fmt::{Debug, Display, Formatter};
+use std::{collections::VecDeque, collections::{HashMap, HashSet}, fmt::{Debug, Display, Formatter}, iter};
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde()]
-struct ModuleName {
+pub struct ModuleName {
     module: Vec<String>,
 }
 
@@ -24,19 +23,34 @@ enum Instruction {
     PushString(usize),
     LoadLocal(usize),
     StoreLocal(usize),
-    LoadName(ModuleName, String),
-    LoadGlobal(String),
+    LoadName(ModuleName, String), // TODO parse to usize
+    LoadGlobal(String),           // TODO parse to usize
     Unless(usize),
     Jump(usize),
     Call(usize),
+    Instantiate(ModuleName, String, String), // TODO parse to usize
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ADTVariant {
+    pub name: String,
+    pub elements: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ADTDefinition {
+    name: String,
+    pub variants: Vec<ADTVariant>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct Module {
     pub name: Vec<String>,
     strings: Vec<String>,
-    functions: Map<String, Vec<Instruction>>,
+    functions: HashMap<String, Vec<Instruction>>,
     dependencies: Vec<Vec<String>>,
+    pub adts: HashMap<String, ADTDefinition>,
+    // TODO expectedADTs
 }
 
 struct Frame<'a> {
@@ -67,6 +81,7 @@ enum Value {
     ModuleFnRef(Vec<String>, String),
     #[expect(unused)]
     VariantVal(usize, Vec<Ptr>),
+    #[expect(unused)]
     LambdaVal(Vec<String>, String, Vec<Ptr>),
     ThwartPtr(usize),
 }
@@ -95,9 +110,11 @@ impl Clone for Value {
                 Value::ModuleFnRef(ns.iter().map(|s| s.to_string()).collect(), f.to_string())
             }
             Value::VariantVal(i, ptrs) => Value::VariantVal(*i, ptrs.to_vec()),
-            Value::LambdaVal(ns, f, ptrs) => {
-                Value::LambdaVal(ns.iter().map(|s| s.to_string()).collect(), f.to_string(), ptrs.to_vec())
-            }
+            Value::LambdaVal(ns, f, ptrs) => Value::LambdaVal(
+                ns.iter().map(|s| s.to_string()).collect(),
+                f.to_string(),
+                ptrs.to_vec(),
+            ),
             Value::ThwartPtr(i) => Value::ThwartPtr(*i),
         }
     }
@@ -118,14 +135,14 @@ fn compact_hit(old: &mut GC, new_arena: &mut Vec<Value>, ptr: &mut Ptr) {
             }
             new_arena.push(Value::VariantVal(i, ptrs));
             old.set(ptr.0, Value::ThwartPtr(new_arena.len() - 1))
-        },
-        Value::LambdaVal(module, fnm, mut ptrs ) => {
+        }
+        Value::LambdaVal(module, fnm, mut ptrs) => {
             for ptr in &mut ptrs {
                 compact_hit(old, new_arena, ptr);
             }
             new_arena.push(Value::LambdaVal(module, fnm, ptrs));
             old.set(ptr.0, Value::ThwartPtr(new_arena.len() - 1))
-        },
+        }
         v => {
             new_arena.push(v.clone());
             old.set(ptr.0, Value::ThwartPtr(new_arena.len() - 1))
@@ -215,7 +232,7 @@ macro_rules! define_boolean_operator {
     }
 }
 
-fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
+fn run_main(module_name: Vec<String>, modules: &HashMap<Vec<String>, Module>, context: Context) {
     let mut num_frames = 0;
     let mut gc = GC::new();
     let mut frames: VecDeque<Frame> = VecDeque::new();
@@ -225,7 +242,8 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
 
     while !frames.is_empty() {
         num_frames = num_frames + 1;
-        if num_frames == 500 { // TODO when near full or something...
+        if num_frames == 500 {
+            // TODO when near full or something...
             num_frames = 0;
             gc = compact(gc, &mut frames, &mut stack);
         }
@@ -342,8 +360,8 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
                         // NOTE: increment IP here, since adding a frame will invalidate our borrow
                         cur_frame.ip += 1;
                         let mut new_frame = make_frame(modules.get(ns).unwrap(), name.to_string());
-                        // Reverse arguments because we push(pop())
-                        for _ in (1..=*arg_num).rev() {
+                        // TODO reverse args?
+                        for _ in 1..=*arg_num {
                             new_frame.locals.push(stack.pop().unwrap());
                         }
                         frames.push_back(new_frame);
@@ -352,6 +370,16 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
                         panic!("Tried to invoke a non-callable");
                     }
                 }
+            }
+            Some(Instruction::Instantiate(module, adt, ctor)) => {
+                let data = context
+                    .adts
+                    .get(&module.module)
+                    .and_then(|xs| xs.get(adt))
+                    .and_then(|xs| xs.get(ctor))
+                    .expect("ICE: ADT doesn't exist");
+                let els = iter::repeat(0).take(data.elements).map(|_| stack.pop().unwrap()).collect();
+                stack.push(gc.alloc(Value::VariantVal(data.id, els)));
             }
 
             None => {
@@ -365,10 +393,7 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
 }
 
 fn ensure_all_loaded(modules: &HashMap<Vec<String>, Module>) -> HashSet<Vec<String>> {
-    let mut bfs: Vec<Vec<String>> = modules
-        .keys()
-        .cloned()
-        .collect();
+    let mut bfs: Vec<Vec<String>> = modules.keys().cloned().collect();
     let mut seen: HashSet<Vec<String>> = HashSet::new();
     let mut missing = HashSet::new();
     while let Some(item) = bfs.pop() {
@@ -407,5 +432,6 @@ pub fn run(module: Vec<String>, modules: HashMap<Vec<String>, Module>) {
         panic!("Missing module(s): {}", missing_names);
     }
     eprintln!("Running {:?}...", module);
-    run_main(module, modules);
+    let context = build_context(&modules);
+    run_main(module, &modules, context);
 }

@@ -1,18 +1,18 @@
-use std::env;
-use std::fs::File;
-use std::io::Read;
-use std::collections::HashMap;
 use lib::vm::Module;
+use std::{collections::HashMap, env, fs::File, io::Read};
 
 extern crate lib;
 
 fn load_module(path: String) -> Result<Module, String> {
     let mut content = String::new();
     if path == "-" {
-        std::io::stdin().read_to_string(&mut content).expect("Cannot read stdin");
+        std::io::stdin()
+            .read_to_string(&mut content)
+            .expect("Cannot read stdin");
     } else {
         let mut file = File::open(&path).map_err(|err| err.to_string())?;
-        file.read_to_string(&mut content).expect(format!("Cannot read the file {path}").as_str());
+        file.read_to_string(&mut content)
+            .expect(format!("Cannot read the file {path}").as_str());
     }
     serde_json::from_str(&content).map_err(|err| err.to_string())
 }
