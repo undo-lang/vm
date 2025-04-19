@@ -24,7 +24,6 @@ enum Instruction {
     PushString(usize),
     LoadLocal(usize),
     StoreLocal(usize),
-    // LoadName(Vec<String>, String),
     LoadName(ModuleName, String),
     LoadGlobal(String),
     Unless(usize),
@@ -68,6 +67,7 @@ enum Value {
     ModuleFnRef(Vec<String>, String),
     #[expect(unused)]
     VariantVal(usize, Vec<Ptr>),
+    LambdaVal(Vec<String>, String, Vec<Ptr>),
     ThwartPtr(usize),
 }
 
@@ -80,6 +80,7 @@ impl Display for Value {
             Value::VariantVal(i, s) => {
                 write!(f, "{0}(#{1} args)", i, s.len())
             }
+            Value::LambdaVal(m, fnm, _) => write!(f, "(LAMBDA {0}::{1})", m.join("::"), fnm),
             Value::ThwartPtr(_) => write!(f, "Thwart ptr"),
         }
     }
@@ -94,6 +95,9 @@ impl Clone for Value {
                 Value::ModuleFnRef(ns.iter().map(|s| s.to_string()).collect(), f.to_string())
             }
             Value::VariantVal(i, ptrs) => Value::VariantVal(*i, ptrs.to_vec()),
+            Value::LambdaVal(ns, f, ptrs) => {
+                Value::LambdaVal(ns.iter().map(|s| s.to_string()).collect(), f.to_string(), ptrs.to_vec())
+            }
             Value::ThwartPtr(i) => Value::ThwartPtr(*i),
         }
     }
@@ -114,7 +118,14 @@ fn compact_hit(old: &mut GC, new_arena: &mut Vec<Value>, ptr: &mut Ptr) {
             }
             new_arena.push(Value::VariantVal(i, ptrs));
             old.set(ptr.0, Value::ThwartPtr(new_arena.len() - 1))
-        }
+        },
+        Value::LambdaVal(module, fnm, mut ptrs ) => {
+            for ptr in &mut ptrs {
+                compact_hit(old, new_arena, ptr);
+            }
+            new_arena.push(Value::LambdaVal(module, fnm, ptrs));
+            old.set(ptr.0, Value::ThwartPtr(new_arena.len() - 1))
+        },
         v => {
             new_arena.push(v.clone());
             old.set(ptr.0, Value::ThwartPtr(new_arena.len() - 1))
@@ -338,7 +349,7 @@ fn run_main(module_name: Vec<String>, modules: HashMap<Vec<String>, Module>) {
                         frames.push_back(new_frame);
                     }
                     _ => {
-                        panic!("Can't call!");
+                        panic!("Tried to invoke a non-callable");
                     }
                 }
             }

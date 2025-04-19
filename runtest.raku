@@ -5,7 +5,7 @@ use JSON::Fast;
 my @specs = from-json(slurp 'test/run/spec.json');
 for @specs -> % (:$name, :$is-error, :$skip, :@dependencies) {
   if $skip {
-    skip "Skipping $name";
+    skip "Skipping $name" ~ (" - $skip" if $skip ~~ Str);
     next;
   }
 

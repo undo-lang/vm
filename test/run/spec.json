@@ -3,7 +3,7 @@
     "name": "simple.call"
   },
   {
-    "skip": true,
+    "skip": "Doesn't use `if`, not sure what this tests",
     "name": "if"
   },
   {
