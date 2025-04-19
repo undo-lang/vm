@@ -1,0 +1,18 @@
+[
+  {
+    "name": "simple.call"
+  },
+  {
+    "skip": true,
+    "name": "if"
+  },
+  {
+    "name": "call-user-fn"
+  },
+  {
+    "name": "call.other.module",
+    "dependencies": [
+      "call.other.module.second"
+    ]
+  }
+]
