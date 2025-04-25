@@ -1,6 +1,6 @@
-use std::collections::HashSet;
 use crate::bc;
 use crate::bc::ModuleName;
+use std::collections::HashSet;
 
 pub struct Program {
     functions: Vec<Vec<Instruction>>,
@@ -43,21 +43,33 @@ pub struct Context<'a> {
 }
 
 fn check_modules(modules: &Vec<bc::Module>) {
-    let all_dependencies: HashSet<&Vec<String>> = modules.iter().flat_map(|m| &m.dependencies).collect();
+    let all_dependencies: HashSet<&Vec<String>> =
+        modules.iter().flat_map(|m| &m.dependencies).collect();
     let provided_modules = modules.iter().map(|m| &m.name).collect::<HashSet<_>>();
     if provided_modules != all_dependencies {
         let missing = provided_modules.difference(&all_dependencies);
         let extra = all_dependencies.difference(&provided_modules);
-        let missing_str = missing.map(|v| v.join("::")).collect::<Vec<String>>().join(", ");
-        let extra_str = extra.map(|v| v.join("::")).collect::<Vec<String>>().join(", ");
+        let missing_str = missing
+            .map(|v| v.join("::"))
+            .collect::<Vec<String>>()
+            .join(", ");
+        let extra_str = extra
+            .map(|v| v.join("::"))
+            .collect::<Vec<String>>()
+            .join(", ");
         if missing_str.is_empty() {
             panic!("Extra modules provided: {}.", extra_str);
         } else if extra_str.is_empty() {
             panic!("Dependencies not matched: {}.", missing_str);
         } else {
-            panic!("Dependencies mismatch, missing {} but provided {}", missing_str, extra_str);
+            panic!(
+                "Dependencies mismatch, missing {} but provided {}",
+                missing_str, extra_str
+            );
         }
     }
+
+    // TODO check ADTs refers to existing modules too
 }
 
 pub fn link(modules: &Vec<bc::Module>) -> (Program, Context) {
@@ -128,13 +140,10 @@ pub fn link(modules: &Vec<bc::Module>) -> (Program, Context) {
         strings,
     };
 
-    let functions= modules.iter()
+    let functions = modules
+        .iter()
         .enumerate()
-        .flat_map(|(m_idx, m)|
-            m.functions.values()
-                .map(|f| (m_idx, f))
-                .collect::<Vec<_>>()
-        )
+        .flat_map(|(m_idx, m)| m.functions.values().map(|f| (m_idx, f)).collect::<Vec<_>>())
         .enumerate()
         .map(|(f_idx, (m_idx, f))| compile(m_idx, f_idx, f, &context))
         .collect::<Vec<_>>();
@@ -147,36 +156,59 @@ pub fn link(modules: &Vec<bc::Module>) -> (Program, Context) {
     (program, context)
 }
 
-fn compile(cur_module_idx: usize, _fn_idx: usize, instrs: &Vec<bc::RawInstruction>, context: &Context) -> Vec<Instruction> {
+fn compile(
+    cur_module_idx: usize,
+    _fn_idx: usize,
+    instrs: &Vec<bc::RawInstruction>,
+    context: &Context,
+) -> Vec<Instruction> {
     use bc::RawInstruction;
-    instrs.iter().map(|instr| match instr {
-        RawInstruction::PushInt(i) => Instruction::PushInt(*i),
-        RawInstruction::PushString(idx) => {
-            // TODO this is incorrect since we merged string table
-            //      maybe just get rid of string tables?
-            Instruction::PushString(StringTableIndex(*idx))
-        },
-        RawInstruction::LoadLocal(i) => Instruction::LoadLocal(*i),
-        RawInstruction::StoreLocal(i) => Instruction::StoreLocal(*i),
-        RawInstruction::Unless(i) => Instruction::Unless(*i),
-        RawInstruction::Jump(i) => Instruction::Jump(*i),
-        RawInstruction::Call(i) => Instruction::Call(*i),
-        RawInstruction::LoadName(ModuleName { module }, fun ) => {
-            let fn_idx = context.function_module_names.iter()
-                .zip(&context.function_names)
-                .position(|(m_name, &fn_name)| module == *m_name && fun == fn_name)
-                .unwrap();
-            Instruction::LoadName(FunctionIndex(fn_idx))
-        }
-        RawInstruction::LoadGlobal(fun ) => {
-            let fn_idx = context.function_modules.iter()
-                .zip(&context.function_names)
-                .position(|(m_idx, &fn_name)| cur_module_idx == *m_idx && fun == fn_name)
-                .unwrap();
-            Instruction::LoadName(FunctionIndex(fn_idx))
-        }
-        RawInstruction::Instantiate(_, _, _) => panic!()
-    }).collect()
+    instrs
+        .iter()
+        .map(|instr| match instr {
+            RawInstruction::PushInt(i) => Instruction::PushInt(*i),
+            RawInstruction::PushString(idx) => {
+                // TODO this is incorrect since we merged string table
+                //      maybe just get rid of string tables?
+                Instruction::PushString(StringTableIndex(*idx))
+            }
+            RawInstruction::LoadLocal(i) => Instruction::LoadLocal(*i),
+            RawInstruction::StoreLocal(i) => Instruction::StoreLocal(*i),
+            RawInstruction::Unless(i) => Instruction::Unless(*i),
+            RawInstruction::Jump(i) => Instruction::Jump(*i),
+            RawInstruction::Call(i) => Instruction::Call(*i),
+            RawInstruction::LoadName(ModuleName { module }, fun) => {
+                let fn_idx = context
+                    .function_module_names
+                    .iter()
+                    .zip(&context.function_names)
+                    .position(|(&m_name, &fn_name)| module == m_name && fun == fn_name)
+                    .expect("Trying to load a non-existing program name");
+                Instruction::LoadName(FunctionIndex(fn_idx))
+            }
+            RawInstruction::LoadGlobal(fun) => {
+                let fn_idx = context
+                    .function_modules
+                    .iter()
+                    .zip(&context.function_names)
+                    .position(|(m_idx, &fn_name)| cur_module_idx == *m_idx && fun == fn_name)
+                    .expect("Trying to load a non-existing module name");
+                Instruction::LoadName(FunctionIndex(fn_idx))
+            }
+            RawInstruction::Instantiate(ModuleName { module }, datatype, ctor) => {
+                let ctor_idx = context
+                    .constructor_module_names
+                    .iter()
+                    .zip(&context.constructor_datatype_names)
+                    .zip(&context.constructor_names)
+                    .position(|((&m_name, &dt_name), &ctor_name)| {
+                        module == m_name && datatype == dt_name && ctor == ctor_name
+                    })
+                    .expect("Trying to load a non-existing datatype constructor");
+                Instruction::Instantiate(ConstructorIndex(ctor_idx))
+            }
+        })
+        .collect()
 }
 
 pub struct ModuleIndex(usize);
