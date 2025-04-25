@@ -28,11 +28,6 @@ pub struct ADTVariant {
     pub elements: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct ADTDefinition {
-    name: String,
-    pub variants: Vec<ADTVariant>,
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct Module {
@@ -40,6 +35,6 @@ pub struct Module {
     pub strings: Vec<String>,
     pub functions: HashMap<String, Vec<RawInstruction>>,
     pub dependencies: Vec<Vec<String>>,
-    pub adts: HashMap<String, ADTDefinition>,
+    pub adts: HashMap<String, Vec<ADTVariant>>,
     // TODO expectedADTs
 }
