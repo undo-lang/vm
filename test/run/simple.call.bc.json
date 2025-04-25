@@ -34,5 +34,6 @@
     "strings": [
         "MAIN",
         "Hello world!"
-    ]
+    ],
+    "adts": {}
 }

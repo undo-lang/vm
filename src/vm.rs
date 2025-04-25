@@ -38,7 +38,7 @@ pub struct ADTVariant {
 }
 
 #[derive(Serialize, Deserialize)]
-struct ADTDefinition {
+pub struct ADTDefinition {
     name: String,
     pub variants: Vec<ADTVariant>,
 }
@@ -79,7 +79,6 @@ enum Value {
     IntVal(i64),
     StrVal(String),
     ModuleFnRef(Vec<String>, String),
-    #[expect(unused)]
     VariantVal(usize, Vec<Ptr>),
     #[expect(unused)]
     LambdaVal(Vec<String>, String, Vec<Ptr>),
@@ -392,6 +391,7 @@ fn run_main(module_name: Vec<String>, modules: &HashMap<Vec<String>, Module>, co
     eprintln!("Program done!");
 }
 
+// TODO pass (dependencies) instead of `Module` so it can be moved to Context
 fn ensure_all_loaded(modules: &HashMap<Vec<String>, Module>) -> HashSet<Vec<String>> {
     let mut bfs: Vec<Vec<String>> = modules.keys().cloned().collect();
     let mut seen: HashSet<Vec<String>> = HashSet::new();
