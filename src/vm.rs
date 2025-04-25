@@ -2,55 +2,12 @@ use crate::context::{build_context, Context};
 use serde::{Deserialize, Serialize};
 use std::{collections::VecDeque, collections::{HashMap, HashSet}, fmt::{Debug, Display, Formatter}, iter};
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde()]
-pub struct ModuleName {
-    module: Vec<String>,
-}
-
 fn is_prelude_(module_name: &[String]) -> bool {
     module_name.len() == 1 && module_name[0] == "Prelude"
 }
 
 fn is_prelude(module_name: &ModuleName) -> bool {
     is_prelude_(&module_name.module)
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "tag", content = "contents")]
-enum Instruction {
-    PushInt(i64),
-    PushString(usize),
-    LoadLocal(usize),
-    StoreLocal(usize),
-    LoadName(ModuleName, String), // TODO parse to usize
-    LoadGlobal(String),           // TODO parse to usize
-    Unless(usize),
-    Jump(usize),
-    Call(usize),
-    Instantiate(ModuleName, String, String), // TODO parse to usize
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ADTVariant {
-    pub name: String,
-    pub elements: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ADTDefinition {
-    name: String,
-    pub variants: Vec<ADTVariant>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Module {
-    pub name: Vec<String>,
-    strings: Vec<String>,
-    functions: HashMap<String, Vec<Instruction>>,
-    dependencies: Vec<Vec<String>>,
-    pub adts: HashMap<String, ADTDefinition>,
-    // TODO expectedADTs
 }
 
 struct Frame<'a> {
