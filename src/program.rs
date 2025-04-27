@@ -69,7 +69,7 @@ fn check_modules(modules: &Vec<bc::Module>) {
         }
     }
 
-    // TODO check ADTs refers to existing modules too
+    // XXX check ADTs refers to existing modules too
 }
 
 pub fn link(modules: &Vec<bc::Module>) -> (Program, Context) {
@@ -97,7 +97,9 @@ pub fn link(modules: &Vec<bc::Module>) -> (Program, Context) {
 
     for (m_idx, module) in modules.iter().enumerate() {
         // let mut module_fns = HashMap::new();
-        for fn_name in module.functions.keys() {
+        let mut fn_keys = module.functions.keys().collect::<Vec<_>>();
+        fn_keys.sort();
+        for fn_name in fn_keys {
             // let f_idx = function_names.len();
             function_modules.push(m_idx);
             function_module_names.push(&module.name);
@@ -143,7 +145,10 @@ pub fn link(modules: &Vec<bc::Module>) -> (Program, Context) {
     let functions = modules
         .iter()
         .enumerate()
-        .flat_map(|(m_idx, m)| m.functions.values().map(|f| (m_idx, f)).collect::<Vec<_>>())
+        .flat_map(|(m_idx, m)| {
+            let mut fns = m.functions.iter().collect::<Vec<_>>();
+            fns.sort_by_key(|(f, _)| *f);
+            fns.iter().map(|f| (m_idx, f.1)).collect::<Vec<_>>() })
         .enumerate()
         .map(|(f_idx, (m_idx, f))| compile(m_idx, f_idx, f, &context))
         .collect::<Vec<_>>();
@@ -169,7 +174,7 @@ fn compile(
             RawInstruction::PushInt(i) => Instruction::PushInt(*i),
             RawInstruction::PushString(idx) => {
                 // TODO this is incorrect since we merged string table
-                //      maybe just get rid of string tables?
+                //      maybe just get rid of string tables in the bytecode?
                 Instruction::PushString(StringTableIndex(*idx))
             }
             RawInstruction::LoadLocal(i) => Instruction::LoadLocal(*i),
@@ -178,6 +183,7 @@ fn compile(
             RawInstruction::Jump(i) => Instruction::Jump(*i),
             RawInstruction::Call(i) => Instruction::Call(*i),
             RawInstruction::LoadName(ModuleName { module }, fun) => {
+                // TODO resolve module idx first so we can provide better error message
                 let fn_idx = context
                     .function_module_names
                     .iter()
@@ -196,6 +202,7 @@ fn compile(
                 Instruction::LoadName(FunctionIndex(fn_idx))
             }
             RawInstruction::Instantiate(ModuleName { module }, datatype, ctor) => {
+                // TODO resolve module idx/datatype idx first so we can provide better error message
                 let ctor_idx = context
                     .constructor_module_names
                     .iter()
