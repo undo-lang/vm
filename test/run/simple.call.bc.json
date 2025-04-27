@@ -35,5 +35,6 @@
         "MAIN",
         "Hello world!"
     ],
-    "adts": {}
+    "adts": {},
+    "expected_adts": []
 }

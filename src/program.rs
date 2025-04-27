@@ -70,7 +70,7 @@ impl<'a> Context<'a> {
     }
 
     // Function-related functions
-    pub fn qualified_name(&'a self, FunctionIndex(i): FunctionIndex) -> String {
+    pub fn fn_qualified_name(&'a self, FunctionIndex(i): FunctionIndex) -> String {
         assert!(i < self.function_names.len());
         format!(
             "{}::{}",
@@ -80,11 +80,51 @@ impl<'a> Context<'a> {
     }
 
     // Datatype-related functions
+    pub fn module_datatype(&self, module: ModuleIndex, datatype: &String) -> Option<DatatypeIndex> {
+        let idx = self
+            .datatype_modules
+            .iter()
+            .zip(&self.datatype_names)
+            .position(|(&dtm, &dtn)| dtm == module && datatype == dtn)?;
+        Some(DatatypeIndex(idx))
+    }
 
     // Constructor-related functions
+    pub fn ctor_qualified_name(&self, ConstructorIndex(i): ConstructorIndex) -> String {
+        assert!(i < self.constructor_names.len());
+        format!(
+            "{}::{}::{}",
+            self.constructor_module_names[i].join("::"),
+            self.constructor_datatype_names[i],
+            self.constructor_names[i]
+        )
+    }
+
+    pub fn ctor_field(&self, ConstructorIndex(i): ConstructorIndex, field: &String) -> Option<usize> {
+        assert!(i < self.constructor_fields.len());
+        self.constructor_fields[i].iter()
+            .position(|f| f == field)
+    }
+
     pub fn ctor_fields_nbr(&self, ConstructorIndex(i): ConstructorIndex) -> usize {
         assert!(i < self.constructor_fields.len());
         self.constructor_fields[i].len()
+    }
+
+    pub fn ctor_called(
+        &self,
+        ModuleName { module }: &ModuleName,
+        datatype: &String,
+        ctor: &String,
+    ) -> Option<ConstructorIndex> {
+        let module_idx = self.module_called(&module)?;
+        let datatype_idx = self.module_datatype(module_idx, &datatype)?;
+        let ctor_idx = self
+            .constructor_datatypes
+            .iter()
+            .zip(&self.constructor_names)
+            .position(|(&dti, &cn)| dti == datatype_idx && cn == ctor)?;
+        Some(ConstructorIndex(ctor_idx))
     }
 
     // Strings-related functions
@@ -116,16 +156,80 @@ fn check_modules(modules: &Vec<bc::Module>) {
             missing_str, provided_modules_str
         );
     }
+}
 
-    // XXX check ADTs refers to existing modules too
+//noinspection RsUnstableItemUsage
+// Ensure consistency in ADTs: all expected ADTs are provided, with the same constructors, and the same elements.
+// This ensures that referring to element `1` of adt `X` is correct in both programs.
+fn check_provided_adts(modules: &Vec<bc::Module>) {
+    for module in modules.iter() {
+        for expected_adt in module.expected_adts.iter() {
+            let Some(target_module) = modules
+                .iter()
+                .find(|&m| m.name == expected_adt.module)
+            else {
+                panic!(
+                    "Module {} expects an ADT in an unknown module: {}",
+                    module.name.join("::"),
+                    expected_adt.module.join("::")
+                );
+            };
+            let Some(target_adt) = target_module.adts.get(&expected_adt.name) else {
+                panic!("Module {} expects module {} to have an unknown ADT: {}",
+                       module.name.join("::"),
+                       expected_adt.module.join("::"),
+                       expected_adt.name
+                );
+            };
+
+            let expected_variants = expected_adt
+                .variants
+                .iter()
+                .map(|v| v.name.clone())
+                .collect::<HashSet<_>>();
+            let adt_variants = target_adt
+                .iter()
+                .map(|v| v.name.clone())
+                .collect::<HashSet<_>>();
+            if expected_variants != adt_variants {
+                panic!(
+                    "Module {}'s ADT has variants {}, but {} expects it to have variants {}",
+                    target_module.name.join("::"),
+                    adt_variants.into_iter().collect::<Vec<_>>().join(", "),
+                    module.name.join("::"),
+                    expected_variants.into_iter().collect::<Vec<_>>().join(", ")
+                );
+            }
+            for expected_variant in expected_adt.variants.iter() {
+                let adt_variant = target_adt
+                    .iter()
+                    .find(|t| t.name == expected_adt.name)
+                    .unwrap();
+                if !expected_variant.elements.is_sorted() {
+                    panic!("Compiler error: expected variants elements aren't sorted");
+                }
+                if adt_variant.elements != expected_variant.elements {
+                    panic!("Module {}'s ADT variant {} has elements {}, but {} expects it to have elements {}",
+                           target_module.name.join("::"),
+                           adt_variant.name,
+                           adt_variant.elements.join(", "),
+                           module.name.join("::"),
+                           expected_variant.elements.join(", "),
+                    );
+                }
+            }
+        }
+    }
 }
 
 fn is_intrinsic(n: &String) -> bool {
-    n == "print" || n == "+"
+    n == "print" || n == "+" // TODO refactor
 }
 
+//noinspection RsUnstableItemUsage
 pub fn link(modules: &Vec<bc::Module>) -> (Program, Context) {
     check_modules(&modules);
+    check_provided_adts(&modules);
 
     let mut context = Context {
         module_names: modules.iter().map(|m| &m.name).collect(),
@@ -173,6 +277,9 @@ pub fn link(modules: &Vec<bc::Module>) -> (Program, Context) {
                 context.constructor_datatype_names.push(datatype_name);
                 context.constructor_names.push(&ctor.name);
                 context.constructor_fields.push(&ctor.elements);
+                if !ctor.elements[..].is_sorted() {
+                    panic!("Compiler error: variant elements not sorted");
+                }
             }
         }
     }
@@ -272,18 +379,18 @@ fn compile(
                     .expect("Trying to load a non-existing module name");
                 Instruction::LoadName(FunctionIndex(fn_idx))
             }
-            RawInstruction::Instantiate(ModuleName { module }, datatype, ctor) => {
+            RawInstruction::Instantiate(module, datatype, ctor) => {
                 // TODO resolve module idx/datatype idx first so we can provide better error message
-                let ctor_idx = context
-                    .constructor_module_names
-                    .iter()
-                    .zip(&context.constructor_datatype_names)
-                    .zip(&context.constructor_names)
-                    .position(|((&m_name, &dt_name), &ctor_name)| {
-                        module == m_name && datatype == dt_name && ctor == ctor_name
-                    })
+                let ctor_idx = context.ctor_called(module, datatype, ctor)
                     .expect("Trying to load a non-existing datatype constructor");
-                Instruction::Instantiate(ConstructorIndex(ctor_idx))
+                Instruction::Instantiate(ctor_idx)
+            }
+            RawInstruction::Field(module, datatype, ctor, field) => {
+                let ctor_idx = context.ctor_called(module, datatype, ctor)
+                    .expect("Trying to load a non-existing datatype constructor");
+                let ctor_field = context.ctor_field(ctor_idx, field)
+                    .expect("Ctor doesn't have required field");
+                Instruction::Field(ctor_idx, ctor_field)
             }
         })
         .collect()
@@ -310,4 +417,5 @@ pub enum Instruction {
     LoadName(FunctionIndex),
     LoadIntrinsic(String),
     Instantiate(ConstructorIndex),
+    Field(ConstructorIndex, usize),
 }

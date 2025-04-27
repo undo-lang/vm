@@ -45,7 +45,8 @@
         "id",
         "x"
     ],
-    "adts": {}
+    "adts": {},
+    "expected_adts": []
 }
 
 

@@ -38,5 +38,6 @@
         "MAIN",
         "add"
     ],
-    "adts": {}
+    "adts": {},
+    "expected_adts": []
 }

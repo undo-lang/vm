@@ -3,12 +3,48 @@
   "functions": {
     "MAIN": [
       {
+        "tag": "PushInt",
+        "contents": 5
+      },
+      {
         "tag": "Instantiate",
         "contents": [
-          ["adt"],
+          {
+            "module": [
+              "adt"
+            ]
+          },
           "Maybe",
           "Just"
         ]
+      },
+      {
+        "tag": "Field",
+        "contents": [
+          {
+            "module": [
+              "adt"
+            ]
+          },
+          "Maybe",
+          "Just",
+          "value"
+        ]
+      },
+      {
+        "tag": "LoadName",
+        "contents": [
+          {
+            "module": [
+              "Prelude"
+            ]
+          },
+          "print"
+        ]
+      },
+      {
+        "tag": "Call",
+        "contents": 1
       }
     ]
   },
@@ -16,7 +52,9 @@
     "Maybe": [
       {
         "name": "Just",
-        "elements": ["value"]
+        "elements": [
+          "value"
+        ]
       },
       {
         "name": "Nothing",
@@ -24,10 +62,10 @@
       }
     ]
   },
+  "expected_adts": [],
   "name": [
     "adt"
   ],
   "strings": [
-
   ]
 }

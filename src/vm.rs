@@ -1,12 +1,16 @@
-use std::{collections::VecDeque, fmt::{Display, Formatter}, iter};
 use crate::bc;
-use crate::program::{link, Context, Program, FunctionIndex, ConstructorIndex, Instruction};
+use crate::program::{link, ConstructorIndex, Context, FunctionIndex, Instruction, Program};
+use std::{
+    collections::VecDeque,
+    fmt::{Display, Formatter},
+    iter,
+};
 
 struct Frame {
     fn_idx: FunctionIndex,
     ip: usize,
     locals: Vec<Ptr>, // XXX we'll want to serialize this when we store closures
-                      //     this will prevent captures from being gc'd
+    //     this will prevent captures from being gc'd
     #[expect(unused)]
     stack: Vec<Ptr>,
 }
@@ -30,7 +34,7 @@ enum Value {
     Intrinsic(String),
     VariantVal(ConstructorIndex, Vec<Ptr>),
     #[expect(unused)]
-    LambdaVal(FunctionIndex , Vec<Ptr>),
+    LambdaVal(FunctionIndex, Vec<Ptr>),
     ThwartPtr(usize),
 }
 
@@ -157,16 +161,18 @@ macro_rules! define_boolean_operator {
     }
 }
 
-
-
 fn run_main(module_name: Vec<String>, program: Program, context: Context) {
     let mut num_frames = 0;
     let mut gc = GC::new();
     let mut frames: VecDeque<Frame> = VecDeque::new();
     let mut stack: Vec<Ptr> = Vec::new(); // TODO use frame stack
 
-    let entrypoint_module = context.module_called(&module_name).expect("Entrypoint module not loaded?");
-    let entrypoint_fn = context.module_fn_called(entrypoint_module, "MAIN").expect("MAIN not found");
+    let entrypoint_module = context
+        .module_called(&module_name)
+        .expect("Entrypoint module not loaded?");
+    let entrypoint_fn = context
+        .module_fn_called(entrypoint_module, "MAIN")
+        .expect("MAIN not found");
 
     frames.push_back(Frame::new(entrypoint_fn));
 
@@ -180,7 +186,11 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
 
         let cur_frame = frames.back_mut().unwrap();
         let fun = program.at(cur_frame.fn_idx);
-        eprintln!("ip: {} in {}", cur_frame.ip, context.qualified_name(cur_frame.fn_idx));
+        eprintln!(
+            "ip: {} in {}",
+            cur_frame.ip,
+            context.fn_qualified_name(cur_frame.fn_idx)
+        );
 
         match fun.get(cur_frame.ip) {
             Some(Instruction::PushInt(n)) => {
@@ -248,7 +258,7 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
                 let ptr = stack.pop().expect("Nothing left on stack to call");
                 let value = gc.at(ptr);
                 match value {
-                    Value::Intrinsic( name) => {
+                    Value::Intrinsic(name) => {
                         match name.as_str() {
                             "print" => {
                                 for _ in 1..=*arg_num {
@@ -281,16 +291,38 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
                         }
                         frames.push_back(new_frame);
                     }
+
                     _ => {
                         panic!("Tried to invoke a non-callable");
                     }
                 }
             }
+
             Some(Instruction::Instantiate(ctor_idx)) => {
                 let nbr = context.ctor_fields_nbr(*ctor_idx);
-                let els = iter::repeat(0).take(nbr).map(|_| stack.pop().unwrap()).collect();
+                let els = iter::repeat(0)
+                    .take(nbr)
+                    .map(|_| stack.pop().unwrap())
+                    .collect();
                 stack.push(gc.alloc(Value::VariantVal(*ctor_idx, els)));
+                cur_frame.ip += 1;
             }
+
+            Some(Instruction::Field(ctor, i)) => match gc.at(stack.pop().unwrap()) {
+                Value::VariantVal(vc, ptrs) => {
+                    if ctor != vc {
+                        panic!("Expected variant {}, got {} in field access",
+                            context.ctor_qualified_name(*ctor),
+                            context.ctor_qualified_name(*vc),
+                        );
+                    }
+                    stack.push(ptrs[*i]);
+                    cur_frame.ip += 1;
+                }
+                _ => {
+                    panic!("Cannot access field of non-ADT");
+                }
+            },
 
             None => {
                 // TODO reinstate some sort of %bsp?
