@@ -164,6 +164,7 @@ fn check_modules(modules: &Vec<bc::Module>) {
 fn check_provided_adts(modules: &Vec<bc::Module>) {
     for module in modules.iter() {
         for expected_adt in module.expected_adts.iter() {
+            // TODO check that the expected ADT is a direct dependency
             let Some(target_module) = modules
                 .iter()
                 .find(|&m| m.name == expected_adt.module)
@@ -203,7 +204,7 @@ fn check_provided_adts(modules: &Vec<bc::Module>) {
             for expected_variant in expected_adt.variants.iter() {
                 let adt_variant = target_adt
                     .iter()
-                    .find(|t| t.name == expected_adt.name)
+                    .find(|t| t.name == expected_variant.name)
                     .unwrap();
                 if !expected_variant.elements.is_sorted() {
                     panic!("Compiler error: expected variants elements aren't sorted");

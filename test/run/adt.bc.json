@@ -1,5 +1,25 @@
 {
+  "name": [
+    "adt"
+  ],
   "dependencies": [],
+  "strings": [
+  ],
+  "adts": {
+    "Maybe": [
+      {
+        "name": "Just",
+        "elements": [
+          "value"
+        ]
+      },
+      {
+        "name": "Nothing",
+        "elements": []
+      }
+    ]
+  },
+  "expected_adts": [],
   "functions": {
     "MAIN": [
       {
@@ -47,25 +67,5 @@
         "contents": 1
       }
     ]
-  },
-  "adts": {
-    "Maybe": [
-      {
-        "name": "Just",
-        "elements": [
-          "value"
-        ]
-      },
-      {
-        "name": "Nothing",
-        "elements": []
-      }
-    ]
-  },
-  "expected_adts": [],
-  "name": [
-    "adt"
-  ],
-  "strings": [
-  ]
+  }
 }

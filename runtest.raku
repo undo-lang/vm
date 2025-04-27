@@ -21,20 +21,18 @@ for @specs -> % (:$name, :$is-error, :$skip, :@dependencies) {
   $proc.stderr.tap({ $error ~= $_ });
 
   try {
-    await $proc.start;
+    use fatal;
+    my $r = await $proc.start;
 
     if $is-error {
-      fail "Expected error.";
-    } else {
-      is @output.join("\n"), $expected-output, $name;
-    }
-
-    CATCH {
-      if $is-error {
-        is $error, $expected-output, $name;
+      if $r.exitcode {
+        ok $error ~~ /$expected-output/, $name;
       } else {
-        say "ERRORS:\n" ~ $error.lines.map("ERR: " ~ *).join("\n").indent(2) if $error;
+        flunk "Expected error";
       }
+    } else {
+      fail "ERRORS:\n" ~ $error.lines.map("ERR: " ~ *).join("\n").indent(2) if $r.exitcode;
+      is @output.join("\n"), $expected-output, $name;
     }
   }
 }

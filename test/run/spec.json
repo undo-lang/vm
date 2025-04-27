@@ -17,5 +17,16 @@
   },
   {
     "name": "adt"
+  },
+  {
+    "name": "expected-adt",
+    "dependencies": [
+      "adt"
+    ],
+    "skip": true
+  },
+  {
+    "name": "err-no-main",
+    "is-error": true
   }
 ]

@@ -1,0 +1,27 @@
+{
+  "name": ["expected", "adt"],
+  "dependencies": [
+    ["adt"]
+  ],
+  "strings": [],
+  "adts": {},
+  "expected_adts": [
+    {
+      "module": ["adt"],
+      "name": "Maybe",
+      "variants": [
+        {
+          "name": "Just",
+          "elements": [
+            "value"
+          ]
+        },
+        {
+          "name": "Nothing",
+          "elements": []
+        }
+      ]
+    }
+  ],
+  "functions": {}
+}
