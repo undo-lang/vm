@@ -1,13 +1,20 @@
 {
-  "name": ["expected", "adt"],
+  "name": [
+    "expected",
+    "adt"
+  ],
   "dependencies": [
-    ["adt"]
+    [
+      "adt"
+    ]
   ],
   "strings": [],
   "adts": {},
   "expected_adts": [
     {
-      "module": ["adt"],
+      "module": [
+        "adt"
+      ],
       "name": "Maybe",
       "variants": [
         {
@@ -23,5 +30,52 @@
       ]
     }
   ],
-  "functions": {}
+  "functions": {
+    "MAIN": [
+      {
+        "tag": "PushInt",
+        "contents": 5
+      },
+      {
+        "tag": "Instantiate",
+        "contents": [
+          {
+            "module": [
+              "adt"
+            ]
+          },
+          "Maybe",
+          "Just"
+        ]
+      },
+      {
+        "tag": "Field",
+        "contents": [
+          {
+            "module": [
+              "adt"
+            ]
+          },
+          "Maybe",
+          "Just",
+          "value"
+        ]
+      },
+      {
+        "tag": "LoadName",
+        "contents": [
+          {
+            "module": [
+              "Prelude"
+            ]
+          },
+          "print"
+        ]
+      },
+      {
+        "tag": "Call",
+        "contents": 1
+      }
+    ]
+  }
 }
