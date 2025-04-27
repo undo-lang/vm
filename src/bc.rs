@@ -20,6 +20,7 @@ pub enum RawInstruction {
     Jump(usize),
     Call(usize),
     Instantiate(ModuleName, String, String),
+    IsVariant(ModuleName, String, String),
     Field(ModuleName, String, String, String),
 }
 

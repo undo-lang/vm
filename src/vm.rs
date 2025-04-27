@@ -93,15 +93,19 @@ fn compact(mut old: GC, frames: &mut VecDeque<Frame>, stack: &mut [Ptr]) -> GC {
 }
 
 impl GC {
-    fn at(&mut self, i: Ptr) -> &Value {
+    fn at(&self, i: Ptr) -> &Value {
         self.raw_at(i.0)
+    }
+
+    #[expect(unused)]
+    fn at_mut(&mut self, i: Ptr) -> &Value {
+        self.raw_at_mut(i.0)
     }
 
     fn raw_at(&self, i: usize) -> &Value {
         self.0.get(i).unwrap()
     }
 
-    #[expect(unused)]
     fn raw_at_mut(&mut self, i: usize) -> &mut Value {
         self.0.get_mut(i).unwrap()
     }
@@ -308,10 +312,23 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
                 cur_frame.ip += 1;
             }
 
+            Some(Instruction::IsVariant(ctor)) => {
+                let val = gc.at(stack.pop().unwrap());
+                match val {
+                    Value::VariantVal(vc, _) => {
+                        gc.alloc(Value::IntVal(if vc == ctor { 1i64 } else { 0i64 }));
+                        cur_frame.ip += 1;
+                    }
+                    _ => {
+                        panic!("Cannot check variant of a non-ADT");
+                    }
+                }
+            }
             Some(Instruction::Field(ctor, i)) => match gc.at(stack.pop().unwrap()) {
                 Value::VariantVal(vc, ptrs) => {
                     if ctor != vc {
-                        panic!("Expected variant {}, got {} in field access",
+                        panic!(
+                            "Expected variant {}, got {} in field access",
                             context.ctor_qualified_name(*ctor),
                             context.ctor_qualified_name(*vc),
                         );

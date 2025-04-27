@@ -381,10 +381,14 @@ fn compile(
                 Instruction::LoadName(FunctionIndex(fn_idx))
             }
             RawInstruction::Instantiate(module, datatype, ctor) => {
-                // TODO resolve module idx/datatype idx first so we can provide better error message
                 let ctor_idx = context.ctor_called(module, datatype, ctor)
                     .expect("Trying to load a non-existing datatype constructor");
                 Instruction::Instantiate(ctor_idx)
+            }
+            RawInstruction::IsVariant(module, datatype, ctor ) => {
+                let ctor_idx = context.ctor_called(module, datatype, ctor)
+                    .expect("Trying to load a non-existing datatype constructor");
+                Instruction::IsVariant(ctor_idx)
             }
             RawInstruction::Field(module, datatype, ctor, field) => {
                 let ctor_idx = context.ctor_called(module, datatype, ctor)
@@ -418,5 +422,6 @@ pub enum Instruction {
     LoadName(FunctionIndex),
     LoadIntrinsic(String),
     Instantiate(ConstructorIndex),
+    IsVariant(ConstructorIndex),
     Field(ConstructorIndex, usize),
 }
