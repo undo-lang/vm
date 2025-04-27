@@ -224,7 +224,7 @@ fn check_provided_adts(modules: &Vec<bc::Module>) {
 }
 
 fn is_intrinsic(n: &String) -> bool {
-    n == "print" || n == "+" // TODO refactor
+    n == "print" || n == "+" || n == "==" // TODO refactor
 }
 
 //noinspection RsUnstableItemUsage

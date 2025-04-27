@@ -8,7 +8,14 @@
       "adt"
     ]
   ],
-  "strings": [],
+  "strings": [
+    "MAIN",
+    "Maybe",
+    "Just",
+    "Nothing",
+    "value",
+    "Got 5 in there?"
+  ],
   "adts": {},
   "expected_adts": [
     {
@@ -48,6 +55,16 @@
           "Just"
         ]
       },
+
+      {
+        "tag": "StoreLocal",
+        "contents": 0
+      },
+      {
+        "tag": "LoadLocal",
+        "contents": 0
+      },
+
       {
         "tag": "Field",
         "contents": [
@@ -60,6 +77,65 @@
           "Just",
           "value"
         ]
+      },
+      {
+        "tag": "LoadName",
+        "contents": [
+          {
+            "module": [
+              "Prelude"
+            ]
+          },
+          "print"
+        ]
+      },
+      {
+        "tag": "Call",
+        "contents": 1
+      },
+
+      {
+        "tag": "PushString",
+        "contents": 5
+      },
+      {
+        "tag": "LoadName",
+        "contents": [
+          {
+            "module": [
+              "Prelude"
+            ]
+          },
+          "print"
+        ]
+      },
+      {
+        "tag": "Call",
+        "contents": 1
+      },
+
+      {
+        "tag": "LoadLocal",
+        "contents": 0
+      },
+      {
+        "tag": "PushInt",
+        "contents": 5
+      },
+      {
+        "tag": "LoadName",
+        "contents": [
+          {
+            "module": [
+              "adt"
+            ]
+          },
+          "contains"
+        ]
+      },
+      {
+        "tag": "Call",
+        "contents": 2
       },
       {
         "tag": "LoadName",

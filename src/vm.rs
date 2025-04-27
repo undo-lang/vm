@@ -9,9 +9,7 @@ use std::{
 struct Frame {
     fn_idx: FunctionIndex,
     ip: usize,
-    locals: Vec<Ptr>, // XXX we'll want to serialize this when we store closures
-    //     this will prevent captures from being gc'd
-    #[expect(unused)]
+    locals: Vec<Ptr>,
     stack: Vec<Ptr>,
 }
 
@@ -79,14 +77,14 @@ fn compact_hit(old: &mut GC, new_arena: &mut Vec<Value>, ptr: &mut Ptr) {
     }
 }
 
-fn compact(mut old: GC, frames: &mut VecDeque<Frame>, stack: &mut [Ptr]) -> GC {
+fn compact(mut old: GC, frames: &mut VecDeque<Frame>) -> GC {
     let mut new_arena: Vec<Value> = vec![];
-    for ptr in stack.iter_mut() {
-        compact_hit(&mut old, &mut new_arena, ptr);
-    }
     for frame in frames {
         for local in &mut frame.locals {
             compact_hit(&mut old, &mut new_arena, local);
+        }
+        for ptr in frame.stack.iter_mut() {
+            compact_hit(&mut old, &mut new_arena, ptr);
         }
     }
     GC(new_arena)
@@ -165,11 +163,15 @@ macro_rules! define_boolean_operator {
     }
 }
 
+fn err(msg: &'static str, cur_frame: &Frame, context: &Context) -> ! {
+    panic!("{} - {} ip={}", msg, context.fn_qualified_name(cur_frame.fn_idx), cur_frame.ip);
+}
+
 fn run_main(module_name: Vec<String>, program: Program, context: Context) {
     let mut num_frames = 0;
     let mut gc = GC::new();
     let mut frames: VecDeque<Frame> = VecDeque::new();
-    let mut stack: Vec<Ptr> = Vec::new(); // TODO use frame stack
+    // let mut stack: Vec<Ptr> = Vec::new(); // TODO use frame stack
 
     let entrypoint_module = context
         .module_called(&module_name)
@@ -185,7 +187,7 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
         if num_frames == 500 {
             // TODO when near full or something...
             num_frames = 0;
-            gc = compact(gc, &mut frames, &mut stack);
+            gc = compact(gc, &mut frames);
         }
 
         let cur_frame = frames.back_mut().unwrap();
@@ -198,13 +200,15 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
 
         match fun.get(cur_frame.ip) {
             Some(Instruction::PushInt(n)) => {
-                stack.push(gc.alloc(Value::IntVal(*n)));
+                cur_frame.stack.push(gc.alloc(Value::IntVal(*n)));
                 cur_frame.ip += 1;
             }
 
             Some(Instruction::PushString(n)) => {
                 let string = context.string(*n);
-                stack.push(gc.alloc(Value::StrVal(string.to_string())));
+                cur_frame
+                    .stack
+                    .push(gc.alloc(Value::StrVal(string.to_string())));
                 cur_frame.ip += 1;
             }
 
@@ -213,12 +217,12 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
                     .locals
                     .get(*idx)
                     .expect("Trying to access uninitialized local");
-                stack.push(*ptr);
+                cur_frame.stack.push(*ptr);
                 cur_frame.ip += 1;
             }
 
             Some(Instruction::StoreLocal(idx)) => {
-                let ptr = stack.pop().expect("Stack is empty, cannot store");
+                let ptr = cur_frame.stack.pop().expect("Stack is empty, cannot store");
                 if cur_frame.locals.len() > *idx {
                     cur_frame.locals[*idx] = ptr;
                 } else if cur_frame.locals.len() == *idx {
@@ -230,12 +234,14 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
             }
 
             Some(Instruction::LoadName(fn_idx)) => {
-                stack.push(gc.alloc(Value::ModuleFnRef(*fn_idx)));
+                cur_frame.stack.push(gc.alloc(Value::ModuleFnRef(*fn_idx)));
                 cur_frame.ip += 1;
             }
 
             Some(Instruction::LoadIntrinsic(intr)) => {
-                stack.push(gc.alloc(Value::Intrinsic(intr.clone())));
+                cur_frame
+                    .stack
+                    .push(gc.alloc(Value::Intrinsic(intr.clone())));
                 cur_frame.ip += 1;
             }
 
@@ -244,7 +250,9 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
             }
 
             Some(Instruction::Unless(offset)) => {
-                let ptr = stack.pop().expect("Nothing left on stack");
+                let Some(ptr) = cur_frame.stack.pop() else {
+                    err("`unless` - stack exhaustion", cur_frame, &context);
+                };
                 let value = gc.at(ptr);
                 match value {
                     Value::IntVal(n) => {
@@ -259,26 +267,30 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
             }
 
             Some(Instruction::Call(arg_num)) => {
-                let ptr = stack.pop().expect("Nothing left on stack to call");
+                let Some(ptr) = cur_frame
+                    .stack
+                    .pop() else {
+                    err("`call` - callee exhaustion", cur_frame, &context);
+                };
                 let value = gc.at(ptr);
                 match value {
                     Value::Intrinsic(name) => {
                         match name.as_str() {
                             "print" => {
                                 for _ in 1..=*arg_num {
-                                    println!("{}", gc.at(stack.pop().unwrap()));
+                                    println!("{}", gc.at(cur_frame.stack.pop().unwrap()));
                                 }
                             }
-                            "+" => define_arithmetic_operator!(+, gc, stack, arg_num),
-                            "-" => define_arithmetic_operator!(-, gc, stack, arg_num),
-                            "/" => define_arithmetic_operator!(/, gc, stack, arg_num),
-                            "*" => define_arithmetic_operator!(*, gc, stack, arg_num),
-                            ">" => define_boolean_operator!(>, gc, stack, arg_num),
-                            "<" => define_boolean_operator!(<, gc, stack, arg_num),
-                            "==" => define_boolean_operator!(==, gc, stack, arg_num),
-                            ">=" => define_boolean_operator!(>=, gc, stack, arg_num),
-                            "<=" => define_boolean_operator!(<=, gc, stack, arg_num),
-                            "!=" => define_boolean_operator!(!=, gc, stack, arg_num),
+                            "+" => define_arithmetic_operator!(+, gc, cur_frame.stack, arg_num),
+                            "-" => define_arithmetic_operator!(-, gc, cur_frame.stack, arg_num),
+                            "/" => define_arithmetic_operator!(/, gc, cur_frame.stack, arg_num),
+                            "*" => define_arithmetic_operator!(*, gc, cur_frame.stack, arg_num),
+                            ">" => define_boolean_operator!(>, gc, cur_frame.stack, arg_num),
+                            "<" => define_boolean_operator!(<, gc, cur_frame.stack, arg_num),
+                            "==" => define_boolean_operator!(==, gc, cur_frame.stack, arg_num),
+                            ">=" => define_boolean_operator!(>=, gc, cur_frame.stack, arg_num),
+                            "<=" => define_boolean_operator!(<=, gc, cur_frame.stack, arg_num),
+                            "!=" => define_boolean_operator!(!=, gc, cur_frame.stack, arg_num),
                             // TODO ++
                             _ => panic!("No such prelude fn: {name}", name = name),
                         }
@@ -289,15 +301,15 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
                         // NOTE: increment IP here, since adding a frame will invalidate our borrow
                         cur_frame.ip += 1;
                         let mut new_frame = Frame::new(*fn_idx);
-                        // TODO reverse args?
                         for _ in 1..=*arg_num {
-                            new_frame.locals.push(stack.pop().unwrap());
+                            new_frame.locals.push(cur_frame.stack.pop().unwrap());
                         }
+                        new_frame.locals.reverse(); // arg0=local0, etc
                         frames.push_back(new_frame);
                     }
 
                     _ => {
-                        panic!("Tried to invoke a non-callable");
+                        err("`call` - not a callable", cur_frame, &context);
                     }
                 }
             }
@@ -306,25 +318,28 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
                 let nbr = context.ctor_fields_nbr(*ctor_idx);
                 let els = iter::repeat(0)
                     .take(nbr)
-                    .map(|_| stack.pop().unwrap())
+                    .map(|_| cur_frame.stack.pop().unwrap())
                     .collect();
-                stack.push(gc.alloc(Value::VariantVal(*ctor_idx, els)));
+                cur_frame
+                    .stack
+                    .push(gc.alloc(Value::VariantVal(*ctor_idx, els)));
                 cur_frame.ip += 1;
             }
 
             Some(Instruction::IsVariant(ctor)) => {
-                let val = gc.at(stack.pop().unwrap());
+                let val = gc.at(cur_frame.stack.pop().unwrap());
                 match val {
                     Value::VariantVal(vc, _) => {
-                        gc.alloc(Value::IntVal(if vc == ctor { 1i64 } else { 0i64 }));
+                        let ret = if vc == ctor { 1i64 } else { 0i64 };
+                        cur_frame.stack.push(gc.alloc(Value::IntVal(ret)));
                         cur_frame.ip += 1;
                     }
                     _ => {
-                        panic!("Cannot check variant of a non-ADT");
+                        err("`is_variant` - Cannot check variant of a non-ADT", cur_frame, &context);
                     }
                 }
             }
-            Some(Instruction::Field(ctor, i)) => match gc.at(stack.pop().unwrap()) {
+            Some(Instruction::Field(ctor, i)) => match gc.at(cur_frame.stack.pop().unwrap()) {
                 Value::VariantVal(vc, ptrs) => {
                     if ctor != vc {
                         panic!(
@@ -333,18 +348,37 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
                             context.ctor_qualified_name(*vc),
                         );
                     }
-                    stack.push(ptrs[*i]);
+                    cur_frame.stack.push(ptrs[*i]);
                     cur_frame.ip += 1;
                 }
                 _ => {
-                    panic!("Cannot access field of non-ADT");
+                    err("`field` - Cannot access field of non-ADT", cur_frame, &context);
                 }
             },
 
             None => {
-                // TODO reinstate some sort of %bsp?
-
-                frames.pop_back().expect("No current frame?!");
+                let old_frame = frames.pop_back().expect("No current frame?!");
+                let Some(outer) = frames.back_mut() else {
+                    if old_frame.stack.is_empty() {
+                        continue;
+                    }
+                    panic!(
+                        "Top-level {} leaked values!",
+                        context.fn_qualified_name(old_frame.fn_idx)
+                    );
+                };
+                match old_frame.stack[..] {
+                    [] => {}
+                    [o] => {
+                        outer.stack.insert(0, o);
+                    }
+                    _ => {
+                        panic!(
+                            "{} leaked values!",
+                            context.fn_qualified_name(old_frame.fn_idx)
+                        );
+                    }
+                }
             }
         }
     }

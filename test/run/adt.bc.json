@@ -29,7 +29,7 @@
       {
         "tag":  "IsVariant",
         "contents": [
-          {"module":  "adt"},
+          {"module":  ["adt"]},
           "Maybe",
           "Just"
         ]
@@ -43,7 +43,7 @@
       {
         "tag":  "IsVariant",
         "contents": [
-          {"module":  "adt"},
+          {"module":  ["adt"]},
           "Maybe",
           "Nothing"
         ]
@@ -55,16 +55,53 @@
         "contents": 0
       },
       {
-        "tag":  "IsVariant",
+        "tag": "IsVariant",
         "contents": [
-          {"module":  "adt"},
+          {"module":  ["adt"]},
           "Maybe",
           "Just"
         ]
       },
       {
-        "tag": "JumpUnless",
+        "tag": "Unless",
         "contents": 999
+      },
+
+      {
+        "tag": "LoadLocal",
+        "contents": 0
+      },
+      {
+        "tag": "Field",
+        "contents": [
+          {
+            "module": [
+              "adt"
+            ]
+          },
+          "Maybe",
+          "Just",
+          "value"
+        ]
+      },
+      {
+        "tag": "LoadLocal",
+        "contents": 1
+      },
+      {
+        "tag": "LoadName",
+        "contents": [
+          {
+            "module": [
+              "Prelude"
+            ]
+          },
+          "=="
+        ]
+      },
+      {
+        "tag": "Call",
+        "contents": 2
       }
     ],
     "MAIN": [
