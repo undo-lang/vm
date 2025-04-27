@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug)]
 #[serde()]
 pub struct ModuleName {
-    module: Vec<String>,
+    pub module: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -1,44 +1,36 @@
-use crate::context::{build_context, Context};
-use serde::{Deserialize, Serialize};
-use std::{collections::VecDeque, collections::{HashMap, HashSet}, fmt::{Debug, Display, Formatter}, iter};
+use std::{collections::VecDeque, fmt::{Display, Formatter}, iter};
+use crate::bc;
+use crate::program::{link, Context, Program, FunctionIndex, ConstructorIndex, Instruction};
 
-fn is_prelude_(module_name: &[String]) -> bool {
-    module_name.len() == 1 && module_name[0] == "Prelude"
-}
-
-fn is_prelude(module_name: &ModuleName) -> bool {
-    is_prelude_(&module_name.module)
-}
-
-struct Frame<'a> {
-    module: &'a Module,
-    fun: String,
+struct Frame {
+    fn_idx: FunctionIndex,
     ip: usize,
     locals: Vec<Ptr>, // XXX we'll want to serialize this when we store closures
                       //     this will prevent captures from being gc'd
+    #[expect(unused)]
+    stack: Vec<Ptr>,
 }
 
-// TODO impl
-fn make_frame(module: &Module, name: String) -> Frame {
-    Frame {
-        module,
-        fun: name,
-        ip: 0,
-        locals: vec![],
+impl Frame {
+    fn new(fn_idx: FunctionIndex) -> Self {
+        Frame {
+            fn_idx,
+            ip: 0,
+            locals: Vec::new(),
+            stack: Vec::new(),
+        }
     }
 }
 
-fn cur_fn(module: &Module, fn_name: String) -> &Vec<Instruction> {
-    module.functions.get(&fn_name).expect("No such fn")
-}
-
+#[derive(Clone)]
 enum Value {
     IntVal(i64),
     StrVal(String),
-    ModuleFnRef(Vec<String>, String),
-    VariantVal(usize, Vec<Ptr>),
+    ModuleFnRef(FunctionIndex),
+    Intrinsic(String),
+    VariantVal(ConstructorIndex, Vec<Ptr>),
     #[expect(unused)]
-    LambdaVal(Vec<String>, String, Vec<Ptr>),
+    LambdaVal(FunctionIndex , Vec<Ptr>),
     ThwartPtr(usize),
 }
 
@@ -47,31 +39,8 @@ impl Display for Value {
         match self {
             Value::IntVal(i) => write!(f, "{}", i),
             Value::StrVal(s) => write!(f, "{}", s),
-            Value::ModuleFnRef(m, fnm) => write!(f, "{0}::{1}", m.join("::"), fnm),
-            Value::VariantVal(i, s) => {
-                write!(f, "{0}(#{1} args)", i, s.len())
-            }
-            Value::LambdaVal(m, fnm, _) => write!(f, "(LAMBDA {0}::{1})", m.join("::"), fnm),
             Value::ThwartPtr(_) => write!(f, "Thwart ptr"),
-        }
-    }
-}
-
-impl Clone for Value {
-    fn clone(&self) -> Value {
-        match self {
-            Value::IntVal(i) => Value::IntVal(*i),
-            Value::StrVal(s) => Value::StrVal(s.to_string()),
-            Value::ModuleFnRef(ns, f) => {
-                Value::ModuleFnRef(ns.iter().map(|s| s.to_string()).collect(), f.to_string())
-            }
-            Value::VariantVal(i, ptrs) => Value::VariantVal(*i, ptrs.to_vec()),
-            Value::LambdaVal(ns, f, ptrs) => Value::LambdaVal(
-                ns.iter().map(|s| s.to_string()).collect(),
-                f.to_string(),
-                ptrs.to_vec(),
-            ),
-            Value::ThwartPtr(i) => Value::ThwartPtr(*i),
+            _ => write!(f, "TODO Value"),
         }
     }
 }
@@ -92,11 +61,11 @@ fn compact_hit(old: &mut GC, new_arena: &mut Vec<Value>, ptr: &mut Ptr) {
             new_arena.push(Value::VariantVal(i, ptrs));
             old.set(ptr.0, Value::ThwartPtr(new_arena.len() - 1))
         }
-        Value::LambdaVal(module, fnm, mut ptrs) => {
+        Value::LambdaVal(fn_idx, mut ptrs) => {
             for ptr in &mut ptrs {
                 compact_hit(old, new_arena, ptr);
             }
-            new_arena.push(Value::LambdaVal(module, fnm, ptrs));
+            new_arena.push(Value::LambdaVal(fn_idx, ptrs));
             old.set(ptr.0, Value::ThwartPtr(new_arena.len() - 1))
         }
         v => {
@@ -188,13 +157,18 @@ macro_rules! define_boolean_operator {
     }
 }
 
-fn run_main(module_name: Vec<String>, modules: &HashMap<Vec<String>, Module>, context: Context) {
+
+
+fn run_main(module_name: Vec<String>, program: Program, context: Context) {
     let mut num_frames = 0;
     let mut gc = GC::new();
     let mut frames: VecDeque<Frame> = VecDeque::new();
-    let mut stack: Vec<Ptr> = Vec::new();
-    let entrypoint_module: &Module = modules.get(&module_name).unwrap();
-    frames.push_back(make_frame(entrypoint_module, "MAIN".to_string()));
+    let mut stack: Vec<Ptr> = Vec::new(); // TODO use frame stack
+
+    let entrypoint_module = context.module_called(&module_name).expect("Entrypoint module not loaded?");
+    let entrypoint_fn = context.module_fn_called(entrypoint_module, "MAIN").expect("MAIN not found");
+
+    frames.push_back(Frame::new(entrypoint_fn));
 
     while !frames.is_empty() {
         num_frames = num_frames + 1;
@@ -205,9 +179,8 @@ fn run_main(module_name: Vec<String>, modules: &HashMap<Vec<String>, Module>, co
         }
 
         let cur_frame = frames.back_mut().unwrap();
-        let fun = cur_fn(cur_frame.module, cur_frame.fun.to_string());
-        eprintln!("ip: {}", cur_frame.ip);
-        eprintln!("got: {:?}", fun.get(cur_frame.ip));
+        let fun = program.at(cur_frame.fn_idx);
+        eprintln!("ip: {} in {}", cur_frame.ip, context.qualified_name(cur_frame.fn_idx));
 
         match fun.get(cur_frame.ip) {
             Some(Instruction::PushInt(n)) => {
@@ -216,7 +189,7 @@ fn run_main(module_name: Vec<String>, modules: &HashMap<Vec<String>, Module>, co
             }
 
             Some(Instruction::PushString(n)) => {
-                let string = cur_frame.module.strings.get(*n).expect("No such string");
+                let string = context.string(*n);
                 stack.push(gc.alloc(Value::StrVal(string.to_string())));
                 cur_frame.ip += 1;
             }
@@ -242,23 +215,13 @@ fn run_main(module_name: Vec<String>, modules: &HashMap<Vec<String>, Module>, co
                 cur_frame.ip += 1;
             }
 
-            Some(Instruction::LoadName(namespace, name)) => {
-                if is_prelude(namespace) || modules.contains_key(&namespace.module) {
-                    stack
-                        .push(gc.alloc(Value::ModuleFnRef(namespace.module.clone(), name.clone())));
-                } else {
-                    eprintln!("Wrong module: {:?}", namespace);
-                    panic!("Trying to access to an un-loaded/unprovided module");
-                }
+            Some(Instruction::LoadName(fn_idx)) => {
+                stack.push(gc.alloc(Value::ModuleFnRef(*fn_idx)));
                 cur_frame.ip += 1;
             }
 
-            Some(Instruction::LoadGlobal(name)) => {
-                // TODO make sure the function exists
-                stack.push(gc.alloc(Value::ModuleFnRef(
-                    cur_frame.module.name.clone(),
-                    name.clone(),
-                )));
+            Some(Instruction::LoadIntrinsic(intr)) => {
+                stack.push(gc.alloc(Value::Intrinsic(intr.clone())));
                 cur_frame.ip += 1;
             }
 
@@ -282,14 +245,10 @@ fn run_main(module_name: Vec<String>, modules: &HashMap<Vec<String>, Module>, co
             }
 
             Some(Instruction::Call(arg_num)) => {
-                // TODO need to think of a story for local functions and returning closures
-                // one of the first thing we need is probably at semantic analysis stage. extract them to
-                // be fake functions, and have an instruction to curry them, i.e.:
-                // ModuleFnRefWithLocals([String], String, Locals: vec<Ptr>)
                 let ptr = stack.pop().expect("Nothing left on stack to call");
                 let value = gc.at(ptr);
                 match value {
-                    Value::ModuleFnRef(ns, name) if is_prelude_(ns) => {
+                    Value::Intrinsic( name) => {
                         match name.as_str() {
                             "print" => {
                                 for _ in 1..=*arg_num {
@@ -312,10 +271,10 @@ fn run_main(module_name: Vec<String>, modules: &HashMap<Vec<String>, Module>, co
                         cur_frame.ip += 1;
                     }
 
-                    Value::ModuleFnRef(ns, name) => {
+                    Value::ModuleFnRef(fn_idx) => {
                         // NOTE: increment IP here, since adding a frame will invalidate our borrow
                         cur_frame.ip += 1;
-                        let mut new_frame = make_frame(modules.get(ns).unwrap(), name.to_string());
+                        let mut new_frame = Frame::new(*fn_idx);
                         // TODO reverse args?
                         for _ in 1..=*arg_num {
                             new_frame.locals.push(stack.pop().unwrap());
@@ -327,15 +286,10 @@ fn run_main(module_name: Vec<String>, modules: &HashMap<Vec<String>, Module>, co
                     }
                 }
             }
-            Some(Instruction::Instantiate(module, adt, ctor)) => {
-                let data = context
-                    .adts
-                    .get(&module.module)
-                    .and_then(|xs| xs.get(adt))
-                    .and_then(|xs| xs.get(ctor))
-                    .expect("ICE: ADT doesn't exist");
-                let els = iter::repeat(0).take(data.elements).map(|_| stack.pop().unwrap()).collect();
-                stack.push(gc.alloc(Value::VariantVal(data.id, els)));
+            Some(Instruction::Instantiate(ctor_idx)) => {
+                let nbr = context.ctor_fields_nbr(*ctor_idx);
+                let els = iter::repeat(0).take(nbr).map(|_| stack.pop().unwrap()).collect();
+                stack.push(gc.alloc(Value::VariantVal(*ctor_idx, els)));
             }
 
             None => {
@@ -348,47 +302,8 @@ fn run_main(module_name: Vec<String>, modules: &HashMap<Vec<String>, Module>, co
     eprintln!("Program done!");
 }
 
-// TODO pass (dependencies) instead of `Module` so it can be moved to Context
-fn ensure_all_loaded(modules: &HashMap<Vec<String>, Module>) -> HashSet<Vec<String>> {
-    let mut bfs: Vec<Vec<String>> = modules.keys().cloned().collect();
-    let mut seen: HashSet<Vec<String>> = HashSet::new();
-    let mut missing = HashSet::new();
-    while let Some(item) = bfs.pop() {
-        match modules.get(&item) {
-            Some(module) => {
-                // Mark current module as seen
-                seen.insert(item.clone());
-                // Traverse all deps, add them to the BFS if we haven't seen them already
-                for dep in &module.dependencies {
-                    if !seen.contains(dep) {
-                        bfs.push(dep.to_vec());
-                    }
-                }
-            }
-            None => {
-                // No dynamic module loading, if it's not in `deps` it's missing
-                missing.insert(item.clone());
-            }
-        }
-    }
-    missing
-}
-
-fn format_module_name(name: &[String]) -> String {
-    name.join(".")
-}
-
-pub fn run(module: Vec<String>, modules: HashMap<Vec<String>, Module>) {
-    let missing_modules = ensure_all_loaded(&modules);
-    if !missing_modules.is_empty() {
-        let missing_names = missing_modules
-            .into_iter()
-            .map(|m| format_module_name(&m))
-            .collect::<Vec<String>>()
-            .join(", ");
-        panic!("Missing module(s): {}", missing_names);
-    }
+pub fn run(module: Vec<String>, modules: Vec<bc::Module>) {
     eprintln!("Running {:?}...", module);
-    let context = build_context(&modules);
-    run_main(module, &modules, context);
+    let (program, context) = link(&modules);
+    run_main(module, program, context);
 }
