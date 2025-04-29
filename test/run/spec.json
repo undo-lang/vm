@@ -14,5 +14,18 @@
     "dependencies": [
       "call.other.module.second"
     ]
+  },
+  {
+    "name": "adt"
+  },
+  {
+    "name": "expected-adt",
+    "dependencies": [
+      "adt"
+    ]
+  },
+  {
+    "name": "err-no-main",
+    "is-error": true
   }
 ]

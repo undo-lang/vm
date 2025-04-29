@@ -1,0 +1,8 @@
+{
+  "name": ["err-no-main"],
+  "dependencies": [],
+  "strings": [],
+  "adts": {},
+  "expected_adts": [],
+  "functions": {}
+}

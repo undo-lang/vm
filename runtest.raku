@@ -1,6 +1,7 @@
 #!/usr/bin/env raku
 use Test;
 use JSON::Fast;
+use fatal;
 
 my @specs = from-json(slurp 'test/run/spec.json');
 for @specs -> % (:$name, :$is-error, :$skip, :@dependencies) {
@@ -21,20 +22,21 @@ for @specs -> % (:$name, :$is-error, :$skip, :@dependencies) {
   $proc.stderr.tap({ $error ~= $_ });
 
   try {
-    await $proc.start;
+    my $r = await $proc.start;
 
     if $is-error {
-      fail "Expected error.";
-    } else {
-      is @output.join("\n"), $expected-output, $name;
-    }
-
-    CATCH {
-      if $is-error {
-        is $error, $expected-output, $name;
+      if $r.exitcode {
+        ok $error ~~ /$expected-output/, $name;
       } else {
-        say "ERRORS:\n" ~ $error.lines.map("ERR: " ~ *).join("\n").indent(2) if $error;
+        flunk "Expected error in $name";
       }
+    } else {
+      if $r.exitcode {
+        diag "ERRORS:\n" ~ $error.lines.map("ERR: " ~ *).join("\n").indent(2);
+        flunk $name;
+      }
+
+      is @output.join("\n"), $expected-output, $name;
     }
   }
 }

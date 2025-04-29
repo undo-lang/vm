@@ -1,9 +1,9 @@
-use lib::vm::Module;
-use std::{collections::HashMap, env, fs::File, io::Read};
+use std::{env, fs::File, io::Read};
+use lib::{bc, vm};
 
 extern crate lib;
 
-fn load_module(path: String) -> Result<Module, String> {
+fn load_module(path: String) -> Result<bc::Module, String> {
     let mut content = String::new();
     if path == "-" {
         std::io::stdin()
@@ -19,7 +19,7 @@ fn load_module(path: String) -> Result<Module, String> {
 
 fn main() {
     let mut main: Vec<String> = Vec::new();
-    let mut modules: HashMap<Vec<String>, Module> = HashMap::new();
+    let mut modules: Vec<bc::Module> = Vec::new();
 
     // XXX this means `./undo-frontend` just errors, instead of behaving like `./undo-frontend -`
     for arg in env::args().skip(1) {
@@ -30,8 +30,8 @@ fn main() {
         if main.is_empty() {
             main = module_name.clone();
         }
-        modules.insert(module_name, module);
+        modules.push(module);
     }
 
-    lib::vm::run(main, modules);
+    vm::run(main, modules);
 }

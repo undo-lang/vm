@@ -55,5 +55,7 @@
     "strings": [
         "MAIN",
         "Hello world!"
-    ]
+    ],
+    "adts": {},
+    "expected_adts": []
 }
