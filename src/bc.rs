@@ -14,6 +14,8 @@ pub enum RawInstruction {
     PushString(usize),
     LoadLocal(usize),
     StoreLocal(usize),
+    LoadReg(usize),
+    StoreReg(usize),
     LoadName(ModuleName, String),
     LoadGlobal(String),
     Unless(usize),

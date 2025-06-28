@@ -10,6 +10,7 @@ struct Frame {
     fn_idx: FunctionIndex,
     ip: usize,
     locals: Vec<Ptr>,
+    registers: Vec<Option<Ptr>>,
     stack: Vec<Ptr>,
 }
 
@@ -19,6 +20,7 @@ impl Frame {
             fn_idx,
             ip: 0,
             locals: Vec::new(),
+            registers: Vec::new(),
             stack: Vec::new(),
         }
     }
@@ -164,7 +166,12 @@ macro_rules! define_boolean_operator {
 }
 
 fn err(msg: &'static str, cur_frame: &Frame, context: &Context) -> ! {
-    panic!("{} - {} ip={}", msg, context.fn_qualified_name(cur_frame.fn_idx), cur_frame.ip);
+    panic!(
+        "{} - {} ip={}",
+        msg,
+        context.fn_qualified_name(cur_frame.fn_idx),
+        cur_frame.ip
+    );
 }
 
 fn run_main(module_name: Vec<String>, program: Program, context: Context) {
@@ -230,6 +237,25 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
                 } else {
                     panic!("Out-of-order local initialization!");
                 }
+                cur_frame.ip += 1;
+            }
+
+            Some(Instruction::LoadReg((idx))) => {
+                let ptr = cur_frame
+                    .registers
+                    .get(*idx)
+                    .expect("Register not allocated")
+                    .expect("Register empty");
+                cur_frame.stack.push(ptr);
+                cur_frame.ip += 1;
+            }
+
+            Some(Instruction::StoreReg(idx)) => {
+                let ptr = cur_frame.stack.pop().expect("Stack is empty, cannot store");
+                if cur_frame.registers.len() < *idx {
+                    cur_frame.registers.resize(*idx, None);
+                }
+                cur_frame.registers[*idx] = Some(ptr);
                 cur_frame.ip += 1;
             }
 
@@ -335,7 +361,11 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
                         cur_frame.ip += 1;
                     }
                     _ => {
-                        err("`is_variant` - Cannot check variant of a non-ADT", cur_frame, &context);
+                        err(
+                            "`is_variant` - Cannot check variant of a non-ADT",
+                            cur_frame,
+                            &context,
+                        );
                     }
                 }
             }
@@ -352,7 +382,11 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
                     cur_frame.ip += 1;
                 }
                 _ => {
-                    err("`field` - Cannot access field of non-ADT", cur_frame, &context);
+                    err(
+                        "`field` - Cannot access field of non-ADT",
+                        cur_frame,
+                        &context,
+                    );
                 }
             },
 

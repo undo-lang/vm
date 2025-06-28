@@ -347,12 +347,12 @@ fn compile(
         .map(|instr| match instr {
             RawInstruction::PushInt(i) => Instruction::PushInt(*i),
             RawInstruction::PushString(idx) => {
-                // TODO this is incorrect since we merged string table
-                //      maybe just get rid of string tables in the bytecode?
                 Instruction::PushString(StringTableIndex(cur_module_idx, *idx))
             }
             RawInstruction::LoadLocal(i) => Instruction::LoadLocal(*i),
             RawInstruction::StoreLocal(i) => Instruction::StoreLocal(*i),
+            RawInstruction::LoadReg(i) => Instruction::LoadReg(*i),
+            RawInstruction::StoreReg(i) => Instruction::StoreReg(*i),
             RawInstruction::Unless(i) => Instruction::Unless(*i),
             RawInstruction::Jump(i) => Instruction::Jump(*i),
             RawInstruction::Call(i) => Instruction::Call(*i),
@@ -418,6 +418,8 @@ pub enum Instruction {
     PushString(StringTableIndex),
     LoadLocal(usize),
     StoreLocal(usize),
+    LoadReg(usize),
+    StoreReg(usize),
     Unless(usize),
     Jump(usize),
     Call(usize),
