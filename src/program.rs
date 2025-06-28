@@ -45,7 +45,7 @@ pub struct Context<'a> {
 
     // string table idx -> string
     // XXX HashMap<usize, Vec<&'a String>>? + LoadString(usize, usize)
-    strings: Vec<&'a String>,
+    strings: Vec<&'a Vec<String>>,
 }
 
 impl<'a> Context<'a> {
@@ -128,8 +128,8 @@ impl<'a> Context<'a> {
     }
 
     // Strings-related functions
-    pub fn string(&self, StringTableIndex(i): StringTableIndex) -> &String {
-        self.strings[i]
+    pub fn string(&self, StringTableIndex(ModuleIndex(m), i): StringTableIndex) -> &String {
+        &self.strings[m][i]
     }
 }
 
@@ -246,7 +246,7 @@ pub fn link(modules: &Vec<bc::Module>) -> (Program, Context) {
         constructor_datatype_names: Vec::new(),
         constructor_names: Vec::new(),
         constructor_fields: Vec::new(),
-        strings: modules.iter().flat_map(|m| &m.strings).collect(),
+        strings: Vec::new(),
     };
 
     // let mut module_function_mapping = HashMap::new();
@@ -283,6 +283,8 @@ pub fn link(modules: &Vec<bc::Module>) -> (Program, Context) {
                 }
             }
         }
+
+        context.strings.push(&module.strings);
     }
 
     let functions = modules
@@ -347,7 +349,7 @@ fn compile(
             RawInstruction::PushString(idx) => {
                 // TODO this is incorrect since we merged string table
                 //      maybe just get rid of string tables in the bytecode?
-                Instruction::PushString(StringTableIndex(*idx))
+                Instruction::PushString(StringTableIndex(cur_module_idx, *idx))
             }
             RawInstruction::LoadLocal(i) => Instruction::LoadLocal(*i),
             RawInstruction::StoreLocal(i) => Instruction::StoreLocal(*i),
@@ -406,7 +408,7 @@ pub struct ModuleIndex(usize);
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct FunctionIndex(usize);
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub struct StringTableIndex(usize);
+pub struct StringTableIndex(ModuleIndex, usize);
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct DatatypeIndex(usize);
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
