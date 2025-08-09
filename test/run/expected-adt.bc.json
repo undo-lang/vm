@@ -8,14 +8,6 @@
       "adt"
     ]
   ],
-  "strings": [
-    "MAIN",
-    "Maybe",
-    "Just",
-    "Nothing",
-    "value",
-    "Got 5 in there?"
-  ],
   "adts": {},
   "expected_adts": [
     {
@@ -96,7 +88,7 @@
 
       {
         "tag": "PushString",
-        "contents": 5
+        "contents": "Got 5 in there?"
       },
       {
         "tag": "LoadName",

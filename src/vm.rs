@@ -215,7 +215,7 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
                 let string = context.string(*n);
                 cur_frame
                     .stack
-                    .push(gc.alloc(Value::StrVal(string.to_string())));
+                    .push(gc.alloc(Value::StrVal(string.clone())));
                 cur_frame.ip += 1;
             }
 
@@ -240,7 +240,7 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
                 cur_frame.ip += 1;
             }
 
-            Some(Instruction::LoadReg((idx))) => {
+            Some(Instruction::LoadReg(idx)) => {
                 let ptr = cur_frame
                     .registers
                     .get(*idx)

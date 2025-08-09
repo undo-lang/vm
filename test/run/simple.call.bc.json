@@ -4,7 +4,7 @@
         "MAIN": [
             {
                 "tag": "PushString",
-                "contents": 1
+                "contents": "Hello world!"
             },
             {
                 "tag": "PushInt",
@@ -30,10 +30,6 @@
     "name": [
         "simple",
         "call"
-    ],
-    "strings": [
-        "MAIN",
-        "Hello world!"
     ],
     "adts": {},
     "expected_adts": []

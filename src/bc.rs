@@ -11,7 +11,7 @@ pub struct ModuleName {
 #[serde(tag = "tag", content = "contents")]
 pub enum RawInstruction {
     PushInt(i64),
-    PushString(usize),
+    PushString(String),
     LoadLocal(usize),
     StoreLocal(usize),
     LoadReg(usize),
@@ -42,7 +42,6 @@ pub struct ExpectedADT {
 #[derive(Serialize, Deserialize)]
 pub struct Module {
     pub name: Vec<String>,
-    pub strings: Vec<String>,
     pub functions: HashMap<String, Vec<RawInstruction>>,
     pub dependencies: Vec<Vec<String>>,
     pub adts: HashMap<String, Vec<ADTVariant>>,

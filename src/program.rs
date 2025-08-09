@@ -44,8 +44,7 @@ pub struct Context<'a> {
     constructor_fields: Vec<&'a Vec<String>>,
 
     // string table idx -> string
-    // XXX HashMap<usize, Vec<&'a String>>? + LoadString(usize, usize)
-    strings: Vec<&'a Vec<String>>,
+    strings: Vec<String>,
 }
 
 impl<'a> Context<'a> {
@@ -128,8 +127,8 @@ impl<'a> Context<'a> {
     }
 
     // Strings-related functions
-    pub fn string(&self, StringTableIndex(ModuleIndex(m), i): StringTableIndex) -> &String {
-        &self.strings[m][i]
+    pub fn string(&self, StringTableIndex(i): StringTableIndex) -> &String {
+        &self.strings[i]
     }
 }
 
@@ -283,8 +282,6 @@ pub fn link(modules: &Vec<bc::Module>) -> (Program, Context) {
                 }
             }
         }
-
-        context.strings.push(&module.strings);
     }
 
     let functions = modules
@@ -296,7 +293,7 @@ pub fn link(modules: &Vec<bc::Module>) -> (Program, Context) {
             fns.iter().map(|f| (m_idx, f.1)).collect::<Vec<_>>()
         })
         .enumerate()
-        .map(|(f_idx, (m_idx, f))| compile(ModuleIndex(m_idx), f_idx, f, &context))
+        .map(|(f_idx, (m_idx, f))| compile(ModuleIndex(m_idx), f_idx, f, &mut context))
         .collect::<Vec<_>>();
 
     // Sanity checks
@@ -339,15 +336,25 @@ fn compile(
     cur_module_idx: ModuleIndex,
     _fn_idx: usize,
     instrs: &Vec<bc::RawInstruction>,
-    context: &Context,
+    context: &mut Context,
 ) -> Vec<Instruction> {
     use bc::RawInstruction;
     instrs
         .iter()
         .map(|instr| match instr {
             RawInstruction::PushInt(i) => Instruction::PushInt(*i),
-            RawInstruction::PushString(idx) => {
-                Instruction::PushString(StringTableIndex(cur_module_idx, *idx))
+            RawInstruction::PushString(s) => {
+                match context.strings.iter().position(|o| o == s) {
+                    Some(i ) => {
+                        let idx = StringTableIndex(i);
+                        Instruction::PushString(idx)
+                    }
+                    None => {
+                        let idx = StringTableIndex(context.strings.len());
+                        context.strings.push(s.to_string());
+                        Instruction::PushString(idx)
+                    }
+                }
             }
             RawInstruction::LoadLocal(i) => Instruction::LoadLocal(*i),
             RawInstruction::StoreLocal(i) => Instruction::StoreLocal(*i),
@@ -408,7 +415,7 @@ pub struct ModuleIndex(usize);
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct FunctionIndex(usize);
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub struct StringTableIndex(ModuleIndex, usize);
+pub struct StringTableIndex(usize);
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct DatatypeIndex(usize);
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
