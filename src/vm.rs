@@ -178,7 +178,6 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
     let mut num_frames = 0;
     let mut gc = GC::new();
     let mut frames: VecDeque<Frame> = VecDeque::new();
-    // let mut stack: Vec<Ptr> = Vec::new(); // TODO use frame stack
 
     let entrypoint_module = context
         .module_called(&module_name)

@@ -29,6 +29,7 @@ pub enum RawInstruction {
 #[derive(Serialize, Deserialize)]
 pub struct ADTVariant {
     pub name: String,
+    #[serde(alias="parameter")] // XXX remove and unify backend and VM (and frontend?)
     pub elements: Vec<String>,
 }
 
@@ -45,5 +46,6 @@ pub struct Module {
     pub functions: HashMap<String, Vec<RawInstruction>>,
     pub dependencies: Vec<Vec<String>>,
     pub adts: HashMap<String, Vec<ADTVariant>>,
+    #[serde(alias="expectedAdts")] // XXX remove and unify backend and VM
     pub expected_adts: Vec<ExpectedADT>,
 }
