@@ -40,11 +40,8 @@
     "name": [
         "call-user-fn"
     ],
-    "strings": [
-        "MAIN",
-        "id",
-        "x"
-    ]
+    "adts": {},
+    "expected_adts": []
 }
 
 

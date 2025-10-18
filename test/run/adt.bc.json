@@ -1,22 +1,17 @@
 {
+  "name": [
+    "adt"
+  ],
   "dependencies": [],
-  "functions": {
-    "MAIN": [
-      {
-        "tag": "Instantiate",
-        "contents": [
-          ["adt"],
-          "Maybe",
-          "Just"
-        ]
-      }
-    ]
-  },
+  "strings": [
+  ],
   "adts": {
     "Maybe": [
       {
         "name": "Just",
-        "elements": ["value"]
+        "elements": [
+          "value"
+        ]
       },
       {
         "name": "Nothing",
@@ -24,10 +19,136 @@
       }
     ]
   },
-  "name": [
-    "adt"
-  ],
-  "strings": [
+  "expected_adts": [],
+  "functions": {
+    "isJust": [
+      {
+        "tag": "LoadLocal",
+        "contents": 0
+      },
+      {
+        "tag":  "IsVariant",
+        "contents": [
+          {"module":  ["adt"]},
+          "Maybe",
+          "Just"
+        ]
+      }
+    ],
+    "isNothing": [
+      {
+        "tag": "LoadLocal",
+        "contents": 0
+      },
+      {
+        "tag":  "IsVariant",
+        "contents": [
+          {"module":  ["adt"]},
+          "Maybe",
+          "Nothing"
+        ]
+      }
+    ],
+    "contains": [
+      {
+        "tag": "LoadLocal",
+        "contents": 0
+      },
+      {
+        "tag": "IsVariant",
+        "contents": [
+          {"module":  ["adt"]},
+          "Maybe",
+          "Just"
+        ]
+      },
+      {
+        "tag": "Unless",
+        "contents": 999
+      },
 
-  ]
+      {
+        "tag": "LoadLocal",
+        "contents": 0
+      },
+      {
+        "tag": "Field",
+        "contents": [
+          {
+            "module": [
+              "adt"
+            ]
+          },
+          "Maybe",
+          "Just",
+          "value"
+        ]
+      },
+      {
+        "tag": "LoadLocal",
+        "contents": 1
+      },
+      {
+        "tag": "LoadName",
+        "contents": [
+          {
+            "module": [
+              "Prelude"
+            ]
+          },
+          "=="
+        ]
+      },
+      {
+        "tag": "Call",
+        "contents": 2
+      }
+    ],
+    "MAIN": [
+      {
+        "tag": "PushInt",
+        "contents": 5
+      },
+      {
+        "tag": "Instantiate",
+        "contents": [
+          {
+            "module": [
+              "adt"
+            ]
+          },
+          "Maybe",
+          "Just"
+        ]
+      },
+      {
+        "tag": "Field",
+        "contents": [
+          {
+            "module": [
+              "adt"
+            ]
+          },
+          "Maybe",
+          "Just",
+          "value"
+        ]
+      },
+      {
+        "tag": "LoadName",
+        "contents": [
+          {
+            "module": [
+              "Prelude"
+            ]
+          },
+          "print"
+        ]
+      },
+      {
+        "tag": "Call",
+        "contents": 1
+      }
+    ]
+  }
 }

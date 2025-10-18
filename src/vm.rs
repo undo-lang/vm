@@ -1,88 +1,40 @@
-use crate::context::{build_context, Context};
-use serde::{Deserialize, Serialize};
-use std::{collections::VecDeque, collections::{HashMap, HashSet}, fmt::{Debug, Display, Formatter}, iter};
+use crate::bc;
+use crate::program::{link, ConstructorIndex, Context, FunctionIndex, Instruction, Program};
+use std::{
+    collections::VecDeque,
+    fmt::{Display, Formatter},
+    iter,
+};
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde()]
-pub struct ModuleName {
-    module: Vec<String>,
-}
-
-fn is_prelude_(module_name: &[String]) -> bool {
-    module_name.len() == 1 && module_name[0] == "Prelude"
-}
-
-fn is_prelude(module_name: &ModuleName) -> bool {
-    is_prelude_(&module_name.module)
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "tag", content = "contents")]
-enum Instruction {
-    PushInt(i64),
-    PushString(usize),
-    LoadLocal(usize),
-    StoreLocal(usize),
-    LoadName(ModuleName, String), // TODO parse to usize
-    LoadGlobal(String),           // TODO parse to usize
-    Unless(usize),
-    Jump(usize),
-    Call(usize),
-    Instantiate(ModuleName, String, String), // TODO parse to usize
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ADTVariant {
-    pub name: String,
-    pub elements: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct ADTDefinition {
-    name: String,
-    pub variants: Vec<ADTVariant>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Module {
-    pub name: Vec<String>,
-    strings: Vec<String>,
-    functions: HashMap<String, Vec<Instruction>>,
-    dependencies: Vec<Vec<String>>,
-    pub adts: HashMap<String, ADTDefinition>,
-    // TODO expectedADTs
-}
-
-struct Frame<'a> {
-    module: &'a Module,
-    fun: String,
+struct Frame {
+    fn_idx: FunctionIndex,
     ip: usize,
-    locals: Vec<Ptr>, // XXX we'll want to serialize this when we store closures
-                      //     this will prevent captures from being gc'd
+    locals: Vec<Ptr>,
+    registers: Vec<Option<Ptr>>,
+    stack: Vec<Ptr>,
 }
 
-// TODO impl
-fn make_frame(module: &Module, name: String) -> Frame {
-    Frame {
-        module,
-        fun: name,
-        ip: 0,
-        locals: vec![],
+impl Frame {
+    fn new(fn_idx: FunctionIndex) -> Self {
+        Frame {
+            fn_idx,
+            ip: 0,
+            locals: Vec::new(),
+            registers: Vec::new(),
+            stack: Vec::new(),
+        }
     }
 }
 
-fn cur_fn(module: &Module, fn_name: String) -> &Vec<Instruction> {
-    module.functions.get(&fn_name).expect("No such fn")
-}
-
+#[derive(Clone)]
 enum Value {
     IntVal(i64),
     StrVal(String),
-    ModuleFnRef(Vec<String>, String),
+    ModuleFnRef(FunctionIndex),
+    Intrinsic(String),
+    VariantVal(ConstructorIndex, Vec<Ptr>),
     #[expect(unused)]
-    VariantVal(usize, Vec<Ptr>),
-    #[expect(unused)]
-    LambdaVal(Vec<String>, String, Vec<Ptr>),
+    LambdaVal(FunctionIndex, Vec<Ptr>),
     ThwartPtr(usize),
 }
 
@@ -91,31 +43,8 @@ impl Display for Value {
         match self {
             Value::IntVal(i) => write!(f, "{}", i),
             Value::StrVal(s) => write!(f, "{}", s),
-            Value::ModuleFnRef(m, fnm) => write!(f, "{0}::{1}", m.join("::"), fnm),
-            Value::VariantVal(i, s) => {
-                write!(f, "{0}(#{1} args)", i, s.len())
-            }
-            Value::LambdaVal(m, fnm, _) => write!(f, "(LAMBDA {0}::{1})", m.join("::"), fnm),
             Value::ThwartPtr(_) => write!(f, "Thwart ptr"),
-        }
-    }
-}
-
-impl Clone for Value {
-    fn clone(&self) -> Value {
-        match self {
-            Value::IntVal(i) => Value::IntVal(*i),
-            Value::StrVal(s) => Value::StrVal(s.to_string()),
-            Value::ModuleFnRef(ns, f) => {
-                Value::ModuleFnRef(ns.iter().map(|s| s.to_string()).collect(), f.to_string())
-            }
-            Value::VariantVal(i, ptrs) => Value::VariantVal(*i, ptrs.to_vec()),
-            Value::LambdaVal(ns, f, ptrs) => Value::LambdaVal(
-                ns.iter().map(|s| s.to_string()).collect(),
-                f.to_string(),
-                ptrs.to_vec(),
-            ),
-            Value::ThwartPtr(i) => Value::ThwartPtr(*i),
+            _ => write!(f, "TODO Value"),
         }
     }
 }
@@ -136,11 +65,11 @@ fn compact_hit(old: &mut GC, new_arena: &mut Vec<Value>, ptr: &mut Ptr) {
             new_arena.push(Value::VariantVal(i, ptrs));
             old.set(ptr.0, Value::ThwartPtr(new_arena.len() - 1))
         }
-        Value::LambdaVal(module, fnm, mut ptrs) => {
+        Value::LambdaVal(fn_idx, mut ptrs) => {
             for ptr in &mut ptrs {
                 compact_hit(old, new_arena, ptr);
             }
-            new_arena.push(Value::LambdaVal(module, fnm, ptrs));
+            new_arena.push(Value::LambdaVal(fn_idx, ptrs));
             old.set(ptr.0, Value::ThwartPtr(new_arena.len() - 1))
         }
         v => {
@@ -150,29 +79,33 @@ fn compact_hit(old: &mut GC, new_arena: &mut Vec<Value>, ptr: &mut Ptr) {
     }
 }
 
-fn compact(mut old: GC, frames: &mut VecDeque<Frame>, stack: &mut [Ptr]) -> GC {
+fn compact(mut old: GC, frames: &mut VecDeque<Frame>) -> GC {
     let mut new_arena: Vec<Value> = vec![];
-    for ptr in stack.iter_mut() {
-        compact_hit(&mut old, &mut new_arena, ptr);
-    }
     for frame in frames {
         for local in &mut frame.locals {
             compact_hit(&mut old, &mut new_arena, local);
+        }
+        for ptr in frame.stack.iter_mut() {
+            compact_hit(&mut old, &mut new_arena, ptr);
         }
     }
     GC(new_arena)
 }
 
 impl GC {
-    fn at(&mut self, i: Ptr) -> &Value {
+    fn at(&self, i: Ptr) -> &Value {
         self.raw_at(i.0)
+    }
+
+    #[expect(unused)]
+    fn at_mut(&mut self, i: Ptr) -> &Value {
+        self.raw_at_mut(i.0)
     }
 
     fn raw_at(&self, i: usize) -> &Value {
         self.0.get(i).unwrap()
     }
 
-    #[expect(unused)]
     fn raw_at_mut(&mut self, i: usize) -> &mut Value {
         self.0.get_mut(i).unwrap()
     }
@@ -232,36 +165,56 @@ macro_rules! define_boolean_operator {
     }
 }
 
-fn run_main(module_name: Vec<String>, modules: &HashMap<Vec<String>, Module>, context: Context) {
+fn err(msg: &'static str, cur_frame: &Frame, context: &Context) -> ! {
+    panic!(
+        "{} - {} ip={}",
+        msg,
+        context.fn_qualified_name(cur_frame.fn_idx),
+        cur_frame.ip
+    );
+}
+
+fn run_main(module_name: Vec<String>, program: Program, context: Context) {
     let mut num_frames = 0;
     let mut gc = GC::new();
     let mut frames: VecDeque<Frame> = VecDeque::new();
-    let mut stack: Vec<Ptr> = Vec::new();
-    let entrypoint_module: &Module = modules.get(&module_name).unwrap();
-    frames.push_back(make_frame(entrypoint_module, "MAIN".to_string()));
+
+    let entrypoint_module = context
+        .module_called(&module_name)
+        .expect("Entrypoint module not loaded?");
+    let entrypoint_fn = context
+        .module_fn_called(entrypoint_module, "MAIN")
+        .expect("MAIN not found");
+
+    frames.push_back(Frame::new(entrypoint_fn));
 
     while !frames.is_empty() {
         num_frames = num_frames + 1;
         if num_frames == 500 {
             // TODO when near full or something...
             num_frames = 0;
-            gc = compact(gc, &mut frames, &mut stack);
+            gc = compact(gc, &mut frames);
         }
 
         let cur_frame = frames.back_mut().unwrap();
-        let fun = cur_fn(cur_frame.module, cur_frame.fun.to_string());
-        eprintln!("ip: {}", cur_frame.ip);
-        eprintln!("got: {:?}", fun.get(cur_frame.ip));
+        let fun = program.at(cur_frame.fn_idx);
+        eprintln!(
+            "ip: {} in {}",
+            cur_frame.ip,
+            context.fn_qualified_name(cur_frame.fn_idx)
+        );
 
         match fun.get(cur_frame.ip) {
             Some(Instruction::PushInt(n)) => {
-                stack.push(gc.alloc(Value::IntVal(*n)));
+                cur_frame.stack.push(gc.alloc(Value::IntVal(*n)));
                 cur_frame.ip += 1;
             }
 
             Some(Instruction::PushString(n)) => {
-                let string = cur_frame.module.strings.get(*n).expect("No such string");
-                stack.push(gc.alloc(Value::StrVal(string.to_string())));
+                let string = context.string(*n);
+                cur_frame
+                    .stack
+                    .push(gc.alloc(Value::StrVal(string.clone())));
                 cur_frame.ip += 1;
             }
 
@@ -270,12 +223,12 @@ fn run_main(module_name: Vec<String>, modules: &HashMap<Vec<String>, Module>, co
                     .locals
                     .get(*idx)
                     .expect("Trying to access uninitialized local");
-                stack.push(*ptr);
+                cur_frame.stack.push(*ptr);
                 cur_frame.ip += 1;
             }
 
             Some(Instruction::StoreLocal(idx)) => {
-                let ptr = stack.pop().expect("Stack is empty, cannot store");
+                let ptr = cur_frame.stack.pop().expect("Stack is empty, cannot store");
                 if cur_frame.locals.len() > *idx {
                     cur_frame.locals[*idx] = ptr;
                 } else if cur_frame.locals.len() == *idx {
@@ -286,23 +239,34 @@ fn run_main(module_name: Vec<String>, modules: &HashMap<Vec<String>, Module>, co
                 cur_frame.ip += 1;
             }
 
-            Some(Instruction::LoadName(namespace, name)) => {
-                if is_prelude(namespace) || modules.contains_key(&namespace.module) {
-                    stack
-                        .push(gc.alloc(Value::ModuleFnRef(namespace.module.clone(), name.clone())));
-                } else {
-                    eprintln!("Wrong module: {:?}", namespace);
-                    panic!("Trying to access to an un-loaded/unprovided module");
-                }
+            Some(Instruction::LoadReg(idx)) => {
+                let ptr = cur_frame
+                    .registers
+                    .get(*idx)
+                    .expect("Register not allocated")
+                    .expect("Register empty");
+                cur_frame.stack.push(ptr);
                 cur_frame.ip += 1;
             }
 
-            Some(Instruction::LoadGlobal(name)) => {
-                // TODO make sure the function exists
-                stack.push(gc.alloc(Value::ModuleFnRef(
-                    cur_frame.module.name.clone(),
-                    name.clone(),
-                )));
+            Some(Instruction::StoreReg(idx)) => {
+                let ptr = cur_frame.stack.pop().expect("Stack is empty, cannot store");
+                if cur_frame.registers.len() < *idx {
+                    cur_frame.registers.resize(*idx, None);
+                }
+                cur_frame.registers[*idx] = Some(ptr);
+                cur_frame.ip += 1;
+            }
+
+            Some(Instruction::LoadName(fn_idx)) => {
+                cur_frame.stack.push(gc.alloc(Value::ModuleFnRef(*fn_idx)));
+                cur_frame.ip += 1;
+            }
+
+            Some(Instruction::LoadIntrinsic(intr)) => {
+                cur_frame
+                    .stack
+                    .push(gc.alloc(Value::Intrinsic(intr.clone())));
                 cur_frame.ip += 1;
             }
 
@@ -311,7 +275,9 @@ fn run_main(module_name: Vec<String>, modules: &HashMap<Vec<String>, Module>, co
             }
 
             Some(Instruction::Unless(offset)) => {
-                let ptr = stack.pop().expect("Nothing left on stack");
+                let Some(ptr) = cur_frame.stack.pop() else {
+                    err("`unless` - stack exhaustion", cur_frame, &context);
+                };
                 let value = gc.at(ptr);
                 match value {
                     Value::IntVal(n) => {
@@ -326,112 +292,134 @@ fn run_main(module_name: Vec<String>, modules: &HashMap<Vec<String>, Module>, co
             }
 
             Some(Instruction::Call(arg_num)) => {
-                // TODO need to think of a story for local functions and returning closures
-                // one of the first thing we need is probably at semantic analysis stage. extract them to
-                // be fake functions, and have an instruction to curry them, i.e.:
-                // ModuleFnRefWithLocals([String], String, Locals: vec<Ptr>)
-                let ptr = stack.pop().expect("Nothing left on stack to call");
+                let Some(ptr) = cur_frame
+                    .stack
+                    .pop() else {
+                    err("`call` - callee exhaustion", cur_frame, &context);
+                };
                 let value = gc.at(ptr);
                 match value {
-                    Value::ModuleFnRef(ns, name) if is_prelude_(ns) => {
+                    Value::Intrinsic(name) => {
                         match name.as_str() {
                             "print" => {
                                 for _ in 1..=*arg_num {
-                                    println!("{}", gc.at(stack.pop().unwrap()));
+                                    println!("{}", gc.at(cur_frame.stack.pop().unwrap()));
                                 }
                             }
-                            "+" => define_arithmetic_operator!(+, gc, stack, arg_num),
-                            "-" => define_arithmetic_operator!(-, gc, stack, arg_num),
-                            "/" => define_arithmetic_operator!(/, gc, stack, arg_num),
-                            "*" => define_arithmetic_operator!(*, gc, stack, arg_num),
-                            ">" => define_boolean_operator!(>, gc, stack, arg_num),
-                            "<" => define_boolean_operator!(<, gc, stack, arg_num),
-                            "==" => define_boolean_operator!(==, gc, stack, arg_num),
-                            ">=" => define_boolean_operator!(>=, gc, stack, arg_num),
-                            "<=" => define_boolean_operator!(<=, gc, stack, arg_num),
-                            "!=" => define_boolean_operator!(!=, gc, stack, arg_num),
+                            "+" => define_arithmetic_operator!(+, gc, cur_frame.stack, arg_num),
+                            "-" => define_arithmetic_operator!(-, gc, cur_frame.stack, arg_num),
+                            "/" => define_arithmetic_operator!(/, gc, cur_frame.stack, arg_num),
+                            "*" => define_arithmetic_operator!(*, gc, cur_frame.stack, arg_num),
+                            ">" => define_boolean_operator!(>, gc, cur_frame.stack, arg_num),
+                            "<" => define_boolean_operator!(<, gc, cur_frame.stack, arg_num),
+                            "==" => define_boolean_operator!(==, gc, cur_frame.stack, arg_num),
+                            ">=" => define_boolean_operator!(>=, gc, cur_frame.stack, arg_num),
+                            "<=" => define_boolean_operator!(<=, gc, cur_frame.stack, arg_num),
+                            "!=" => define_boolean_operator!(!=, gc, cur_frame.stack, arg_num),
                             // TODO ++
                             _ => panic!("No such prelude fn: {name}", name = name),
                         }
                         cur_frame.ip += 1;
                     }
 
-                    Value::ModuleFnRef(ns, name) => {
+                    Value::ModuleFnRef(fn_idx) => {
                         // NOTE: increment IP here, since adding a frame will invalidate our borrow
                         cur_frame.ip += 1;
-                        let mut new_frame = make_frame(modules.get(ns).unwrap(), name.to_string());
-                        // TODO reverse args?
+                        let mut new_frame = Frame::new(*fn_idx);
                         for _ in 1..=*arg_num {
-                            new_frame.locals.push(stack.pop().unwrap());
+                            new_frame.locals.push(cur_frame.stack.pop().unwrap());
                         }
+                        new_frame.locals.reverse(); // arg0=local0, etc
                         frames.push_back(new_frame);
                     }
+
                     _ => {
-                        panic!("Tried to invoke a non-callable");
+                        err("`call` - not a callable", cur_frame, &context);
                     }
                 }
             }
-            Some(Instruction::Instantiate(module, adt, ctor)) => {
-                let data = context
-                    .adts
-                    .get(&module.module)
-                    .and_then(|xs| xs.get(adt))
-                    .and_then(|xs| xs.get(ctor))
-                    .expect("ICE: ADT doesn't exist");
-                let els = iter::repeat(0).take(data.elements).map(|_| stack.pop().unwrap()).collect();
-                stack.push(gc.alloc(Value::VariantVal(data.id, els)));
+
+            Some(Instruction::Instantiate(ctor_idx)) => {
+                let nbr = context.ctor_fields_nbr(*ctor_idx);
+                let els = iter::repeat(0)
+                    .take(nbr)
+                    .map(|_| cur_frame.stack.pop().unwrap())
+                    .collect();
+                cur_frame
+                    .stack
+                    .push(gc.alloc(Value::VariantVal(*ctor_idx, els)));
+                cur_frame.ip += 1;
             }
 
-            None => {
-                // TODO reinstate some sort of %bsp?
+            Some(Instruction::IsVariant(ctor)) => {
+                let val = gc.at(cur_frame.stack.pop().unwrap());
+                match val {
+                    Value::VariantVal(vc, _) => {
+                        let ret = if vc == ctor { 1i64 } else { 0i64 };
+                        cur_frame.stack.push(gc.alloc(Value::IntVal(ret)));
+                        cur_frame.ip += 1;
+                    }
+                    _ => {
+                        err(
+                            "`is_variant` - Cannot check variant of a non-ADT",
+                            cur_frame,
+                            &context,
+                        );
+                    }
+                }
+            }
+            Some(Instruction::Field(ctor, i)) => match gc.at(cur_frame.stack.pop().unwrap()) {
+                Value::VariantVal(vc, ptrs) => {
+                    if ctor != vc {
+                        panic!(
+                            "Expected variant {}, got {} in field access",
+                            context.ctor_qualified_name(*ctor),
+                            context.ctor_qualified_name(*vc),
+                        );
+                    }
+                    cur_frame.stack.push(ptrs[*i]);
+                    cur_frame.ip += 1;
+                }
+                _ => {
+                    err(
+                        "`field` - Cannot access field of non-ADT",
+                        cur_frame,
+                        &context,
+                    );
+                }
+            },
 
-                frames.pop_back().expect("No current frame?!");
+            None => {
+                let old_frame = frames.pop_back().expect("No current frame?!");
+                let Some(outer) = frames.back_mut() else {
+                    if old_frame.stack.is_empty() {
+                        continue;
+                    }
+                    panic!(
+                        "Top-level {} leaked values!",
+                        context.fn_qualified_name(old_frame.fn_idx)
+                    );
+                };
+                match old_frame.stack[..] {
+                    [] => {}
+                    [o] => {
+                        outer.stack.insert(0, o);
+                    }
+                    _ => {
+                        panic!(
+                            "{} leaked values!",
+                            context.fn_qualified_name(old_frame.fn_idx)
+                        );
+                    }
+                }
             }
         }
     }
     eprintln!("Program done!");
 }
 
-fn ensure_all_loaded(modules: &HashMap<Vec<String>, Module>) -> HashSet<Vec<String>> {
-    let mut bfs: Vec<Vec<String>> = modules.keys().cloned().collect();
-    let mut seen: HashSet<Vec<String>> = HashSet::new();
-    let mut missing = HashSet::new();
-    while let Some(item) = bfs.pop() {
-        match modules.get(&item) {
-            Some(module) => {
-                // Mark current module as seen
-                seen.insert(item.clone());
-                // Traverse all deps, add them to the BFS if we haven't seen them already
-                for dep in &module.dependencies {
-                    if !seen.contains(dep) {
-                        bfs.push(dep.to_vec());
-                    }
-                }
-            }
-            None => {
-                // No dynamic module loading, if it's not in `deps` it's missing
-                missing.insert(item.clone());
-            }
-        }
-    }
-    missing
-}
-
-fn format_module_name(name: &[String]) -> String {
-    name.join(".")
-}
-
-pub fn run(module: Vec<String>, modules: HashMap<Vec<String>, Module>) {
-    let missing_modules = ensure_all_loaded(&modules);
-    if !missing_modules.is_empty() {
-        let missing_names = missing_modules
-            .into_iter()
-            .map(|m| format_module_name(&m))
-            .collect::<Vec<String>>()
-            .join(", ");
-        panic!("Missing module(s): {}", missing_names);
-    }
+pub fn run(module: Vec<String>, modules: Vec<bc::Module>) {
     eprintln!("Running {:?}...", module);
-    let context = build_context(&modules);
-    run_main(module, &modules, context);
+    let (program, context) = link(&modules);
+    run_main(module, program, context);
 }

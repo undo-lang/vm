@@ -1,0 +1,149 @@
+{
+  "name": [
+    "expected",
+    "adt"
+  ],
+  "dependencies": [
+    [
+      "adt"
+    ]
+  ],
+  "adts": {},
+  "expected_adts": [
+    {
+      "module": [
+        "adt"
+      ],
+      "name": "Maybe",
+      "variants": [
+        {
+          "name": "Just",
+          "elements": [
+            "value"
+          ]
+        },
+        {
+          "name": "Nothing",
+          "elements": []
+        }
+      ]
+    }
+  ],
+  "functions": {
+    "MAIN": [
+      {
+        "tag": "PushInt",
+        "contents": 5
+      },
+      {
+        "tag": "Instantiate",
+        "contents": [
+          {
+            "module": [
+              "adt"
+            ]
+          },
+          "Maybe",
+          "Just"
+        ]
+      },
+
+      {
+        "tag": "StoreLocal",
+        "contents": 0
+      },
+      {
+        "tag": "LoadLocal",
+        "contents": 0
+      },
+
+      {
+        "tag": "Field",
+        "contents": [
+          {
+            "module": [
+              "adt"
+            ]
+          },
+          "Maybe",
+          "Just",
+          "value"
+        ]
+      },
+      {
+        "tag": "LoadName",
+        "contents": [
+          {
+            "module": [
+              "Prelude"
+            ]
+          },
+          "print"
+        ]
+      },
+      {
+        "tag": "Call",
+        "contents": 1
+      },
+
+      {
+        "tag": "PushString",
+        "contents": "Got 5 in there?"
+      },
+      {
+        "tag": "LoadName",
+        "contents": [
+          {
+            "module": [
+              "Prelude"
+            ]
+          },
+          "print"
+        ]
+      },
+      {
+        "tag": "Call",
+        "contents": 1
+      },
+
+      {
+        "tag": "LoadLocal",
+        "contents": 0
+      },
+      {
+        "tag": "PushInt",
+        "contents": 5
+      },
+      {
+        "tag": "LoadName",
+        "contents": [
+          {
+            "module": [
+              "adt"
+            ]
+          },
+          "contains"
+        ]
+      },
+      {
+        "tag": "Call",
+        "contents": 2
+      },
+      {
+        "tag": "LoadName",
+        "contents": [
+          {
+            "module": [
+              "Prelude"
+            ]
+          },
+          "print"
+        ]
+      },
+      {
+        "tag": "Call",
+        "contents": 1
+      }
+    ]
+  }
+}
