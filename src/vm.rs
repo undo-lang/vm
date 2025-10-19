@@ -251,8 +251,8 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
 
             Some(Instruction::StoreReg(idx)) => {
                 let ptr = cur_frame.stack.pop().expect("Stack is empty, cannot store");
-                if cur_frame.registers.len() < *idx {
-                    cur_frame.registers.resize(*idx, None);
+                if cur_frame.registers.len() <= *idx {
+                    cur_frame.registers.resize(*idx + 1, None);
                 }
                 cur_frame.registers[*idx] = Some(ptr);
                 cur_frame.ip += 1;

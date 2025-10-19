@@ -345,7 +345,7 @@ fn compile(
             RawInstruction::PushInt(i) => Instruction::PushInt(*i),
             RawInstruction::PushString(s) => {
                 match context.strings.iter().position(|o| o == s) {
-                    Some(i ) => {
+                    Some(i) => {
                         let idx = StringTableIndex(i);
                         Instruction::PushString(idx)
                     }
@@ -358,9 +358,9 @@ fn compile(
             }
             RawInstruction::LoadLocal(i) => Instruction::LoadLocal(*i),
             RawInstruction::StoreLocal(i) => Instruction::StoreLocal(*i),
-            RawInstruction::LoadReg(i) => Instruction::LoadReg(*i),
-            RawInstruction::StoreReg(i) => Instruction::StoreReg(*i),
-            RawInstruction::Unless(i) => Instruction::Unless(*i),
+            RawInstruction::LoadRegister(i) => Instruction::LoadReg(*i),
+            RawInstruction::StoreRegister(i) => Instruction::StoreReg(*i),
+            RawInstruction::JumpUnless(i) => Instruction::Unless(*i),
             RawInstruction::Jump(i) => Instruction::Jump(*i),
             RawInstruction::Call(i) => Instruction::Call(*i),
             RawInstruction::LoadName(ModuleName { module }, fun) => {
@@ -391,17 +391,17 @@ fn compile(
             }
             RawInstruction::Instantiate(module, datatype, ctor) => {
                 let ctor_idx = context.ctor_called(module, datatype, ctor)
-                    .expect("Trying to load a non-existing datatype constructor");
+                    .expect("Trying to instantiate a non-existing datatype constructor");
                 Instruction::Instantiate(ctor_idx)
             }
             RawInstruction::IsVariant(module, datatype, ctor ) => {
                 let ctor_idx = context.ctor_called(module, datatype, ctor)
-                    .expect("Trying to load a non-existing datatype constructor");
+                    .expect("Trying to variant-check a non-existing datatype constructor");
                 Instruction::IsVariant(ctor_idx)
             }
             RawInstruction::Field(module, datatype, ctor, field) => {
                 let ctor_idx = context.ctor_called(module, datatype, ctor)
-                    .expect("Trying to load a non-existing datatype constructor");
+                    .expect("Trying to access field of a non-existing datatype constructor");
                 let ctor_field = context.ctor_field(ctor_idx, field)
                     .expect("Ctor doesn't have required field");
                 Instruction::Field(ctor_idx, ctor_field)
