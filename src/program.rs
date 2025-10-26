@@ -278,7 +278,7 @@ pub fn link(modules: &Vec<bc::Module>) -> (Program, Context) {
                 context.constructor_names.push(&ctor.name);
                 context.constructor_fields.push(&ctor.elements);
                 if !ctor.elements[..].is_sorted() {
-                    panic!("Compiler error: variant elements not sorted");
+                    panic!("Compiler error: variant elements must be sorted ASC (exprs are emitted ASC)");
                 }
             }
         }

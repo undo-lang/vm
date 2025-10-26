@@ -344,6 +344,7 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
                 let els = iter::repeat(0)
                     .take(nbr)
                     .map(|_| cur_frame.stack.pop().unwrap())
+                    .rev()
                     .collect();
                 cur_frame
                     .stack
