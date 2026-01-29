@@ -53,7 +53,7 @@ impl<'a> Context<'a> {
         self.module_names
             .iter()
             .position(|&m| m == name)
-            .map(|m| ModuleIndex(m))
+            .map(ModuleIndex)
     }
 
     pub fn module_fn_called(
@@ -65,7 +65,7 @@ impl<'a> Context<'a> {
             .iter()
             .zip(&self.function_names)
             .position(|(&m, &n)| m == module && n == name)
-            .map(|i| FunctionIndex(i))
+            .map(FunctionIndex)
     }
 
     // Function-related functions
@@ -116,8 +116,8 @@ impl<'a> Context<'a> {
         datatype: &String,
         ctor: &String,
     ) -> Option<ConstructorIndex> {
-        let module_idx = self.module_called(&module)?;
-        let datatype_idx = self.module_datatype(module_idx, &datatype)?;
+        let module_idx = self.module_called(module)?;
+        let datatype_idx = self.module_datatype(module_idx, datatype)?;
         let ctor_idx = self
             .constructor_datatypes
             .iter()
@@ -132,7 +132,7 @@ impl<'a> Context<'a> {
     }
 }
 
-fn check_modules(modules: &Vec<bc::Module>) {
+fn check_modules(modules: &[bc::Module]) {
     let all_dependencies: HashSet<&Vec<String>> =
         modules.iter().flat_map(|m| &m.dependencies).collect();
     let provided_modules = modules.iter().map(|m| &m.name).collect::<HashSet<_>>();
@@ -160,7 +160,7 @@ fn check_modules(modules: &Vec<bc::Module>) {
 //noinspection RsUnstableItemUsage
 // Ensure consistency in ADTs: all expected ADTs are provided, with the same constructors, and the same elements.
 // This ensures that referring to element `1` of adt `X` is correct in both programs.
-fn check_provided_adts(modules: &Vec<bc::Module>) {
+fn check_provided_adts(modules: &[bc::Module]) {
     for module in modules.iter() {
         for expected_adt in module.expected_adts.iter() {
             // TODO check that the expected ADT is a direct dependency
@@ -226,10 +226,9 @@ fn is_intrinsic(n: &String) -> bool {
     n == "print" || n == "+" || n == "==" // TODO refactor
 }
 
-//noinspection RsUnstableItemUsage
-pub fn link(modules: &Vec<bc::Module>) -> (Program, Context) {
-    check_modules(&modules);
-    check_provided_adts(&modules);
+pub fn link(modules: &[bc::Module]) -> (Program, Context<'_>) {
+    check_modules(modules);
+    check_provided_adts(modules);
 
     let mut context = Context {
         module_names: modules.iter().map(|m| &m.name).collect(),
@@ -335,7 +334,7 @@ pub fn link(modules: &Vec<bc::Module>) -> (Program, Context) {
 fn compile(
     cur_module_idx: ModuleIndex,
     _fn_idx: usize,
-    instrs: &Vec<bc::RawInstruction>,
+    instrs: &[bc::RawInstruction],
     context: &mut Context,
 ) -> Vec<Instruction> {
     use bc::RawInstruction;

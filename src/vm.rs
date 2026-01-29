@@ -1,9 +1,10 @@
+#![allow(clippy::assign_op_pattern)]
+
 use crate::bc;
 use crate::program::{link, ConstructorIndex, Context, FunctionIndex, Instruction, Program};
 use std::{
     collections::VecDeque,
     fmt::{Display, Formatter},
-    iter,
 };
 
 struct Frame {
@@ -189,7 +190,7 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
     frames.push_back(Frame::new(entrypoint_fn));
 
     while !frames.is_empty() {
-        num_frames = num_frames + 1;
+        num_frames += 1;
         if num_frames == 500 {
             // TODO when near full or something...
             num_frames = 0;
@@ -341,8 +342,7 @@ fn run_main(module_name: Vec<String>, program: Program, context: Context) {
 
             Some(Instruction::Instantiate(ctor_idx)) => {
                 let nbr = context.ctor_fields_nbr(*ctor_idx);
-                let els = iter::repeat(0)
-                    .take(nbr)
+                let els = std::iter::repeat_n(0, nbr)
                     .map(|_| cur_frame.stack.pop().unwrap())
                     .rev()
                     .collect();
